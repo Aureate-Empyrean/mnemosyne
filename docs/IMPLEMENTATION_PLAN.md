@@ -55,3 +55,13 @@ Browser scenario stopped at task Priority selection: its exact accessible-label
 locator did not match; project/task transition timing also needs manual review.
 Board, remaining browser flows and mobile visual QA are not certified complete.
 Local application: http://localhost:12333/app/modules/mnemosyne
+
+## Resumed focused QA
+
+User requested continuing QA while conserving the remaining quota. Completed the
+focused Playwright scenario with four screenshots and zero console errors.
+Accessible select labels fixed and deployed; test synchronization/cleanup hardened.
+See `docs/QA_HANDOFF.md` for exact coverage and remaining product/visual findings.
+The active Workspace reload behavior, loading states, cramped mobile header and
+project-board prominence are explicitly recorded for tomorrow rather than hidden
+behind a broad "complete" claim.
