@@ -1,0 +1,342 @@
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from mnemosyne.app import create_app
+
+KEY = "test-gateway-key-with-at-least-32-chars"
+
+
+class SharedServices:
+    def __init__(self):
+        self.calls = []
+        self.blobs = {}
+        self.fail = False
+
+    def request(self, method, path, body=None):
+        if self.fail:
+            raise httpx.ConnectError("offline")
+        self.calls.append((method, path, body))
+        if path == "/blobs":
+            self.blobs["blob"] = body["content"]
+            return {"id": "blob"}
+        if path.startswith("/blobs/"):
+            return {"content": self.blobs["blob"]}
+        if path == "/references":
+            return {"reference": {"id": "remote-id"}}
+        if path.startswith("/references?"):
+            return {"references": [], "has_more": False, "next_cursor": 0}
+        return {}
+
+
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXUS_RESOLVER_KEY", KEY)
+    nexus = SharedServices()
+    app = create_app(tmp_path, nexus)
+    with TestClient(app, headers={"X-Nexus-Gateway-Key": KEY}) as c:
+        a = c.post("/api/workspaces", json={"title": "Personal"}).json()["id"]
+        b = c.post("/api/workspaces", json={"title": "Work"}).json()["id"]
+        yield c, app, nexus, a, b, tmp_path
+
+
+def make(c, w, kind="note", **values):
+    body = {
+        "kind": kind,
+        "title": kind.title(),
+        "status": "active" if kind == "project" else "open",
+        **values,
+    }
+    response = c.post(f"/api/w/{w}/resources", json=body)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def update(c, w, r, **values):
+    keys = {
+        "kind",
+        "title",
+        "content",
+        "status",
+        "priority",
+        "start_date",
+        "due_date",
+        "parent",
+        "project",
+        "related_note",
+        "board_column",
+        "icon",
+        "accent",
+        "pinned",
+        "trashed",
+        "tags",
+        "checklist",
+        "collections",
+        "revision",
+    }
+    return c.put(
+        f"/api/w/{w}/resources/{r['id']}",
+        json={**{k: v for k, v in r.items() if k in keys}, **values},
+    )
+
+
+def test_gateway_authentication(env):
+    c, *_ = env
+    assert c.get("/api/workspaces", headers={"X-Nexus-Gateway-Key": ""}).status_code == 403
+    assert c.get("/health").status_code == 200
+
+
+def test_workspace_isolation_every_relationship(env):
+    c, app, nexus, a, b, _ = env
+    note = make(c, a, title="Private needle", content="private searchable content")
+    project = make(c, a, "project")
+    collection = make(c, a, "collection")
+    for route in [
+        f"/resources/{note['id']}",
+        f"/resources/{note['id']}/references",
+        f"/resources/{note['id']}/attachments/unknown",
+    ]:
+        assert c.get(f"/api/w/{b}" + route).status_code == 404
+    assert c.get(f"/api/w/{b}/resources?q=private").json() == []
+    assert update(c, b, note, title="intrusion").status_code == 404
+    for extra in [
+        {"project": project["id"]},
+        {"related_note": note["id"]},
+        {"collections": [collection["id"]]},
+        {"content": f"[leak]({note['reference']})"},
+    ]:
+        assert c.post(f"/api/w/{b}/resources", json={"kind": "note", **extra}).status_code == 404
+    local = make(c, b)
+    assert (
+        c.post(
+            f"/api/w/{b}/resources/{local['id']}/links", json={"target": note["reference"]}
+        ).status_code
+        == 404
+    )
+    assert c.post(f"/api/w/{b}/resolve", json={"target": note["reference"]}).status_code == 404
+    assert c.get(f"/api/w/{b}/export").json()["resources"][0]["id"] == local["id"]
+
+
+def test_autosave_conflict_and_persistence(env):
+    c, app, nexus, a, b, path = env
+    note = make(c, a, content="first")
+    changed = update(c, a, note, content="second")
+    assert changed.status_code == 200
+    assert update(c, a, note, content="stale").status_code == 409
+    other = create_app(path, nexus)
+    with TestClient(other, headers={"X-Nexus-Gateway-Key": KEY}) as client:
+        assert client.get(f"/api/w/{a}/resources/{note['id']}").json()["content"] == "second"
+
+
+def test_daily_notes_are_unique_under_concurrency(env):
+    c, app, nexus, a, b, _ = env
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        rows = list(pool.map(lambda _: c.post(f"/api/w/{a}/daily/2026-09-29").json(), range(8)))
+    assert len({r["id"] for r in rows}) == 1
+    assert c.post(f"/api/w/{b}/daily/2026-09-29").json()["id"] != rows[0]["id"]
+
+
+def test_tasks_dates_checklists_and_independent_board(env):
+    c, app, nexus, a, b, _ = env
+    today = datetime.now(ZoneInfo("Europe/Bratislava")).date()
+    task = make(
+        c,
+        a,
+        "task",
+        due_date=str(today),
+        start_date=str(today - timedelta(days=2)),
+        priority="urgent",
+        checklist=[{"text": "Step", "done": False}],
+        board_column="Done",
+    )
+    assert task["status"] == "open" and task["completed_at"] is None
+    assert c.get(f"/api/w/{a}/resources?view=today").json()[0]["id"] == task["id"]
+    done = update(c, a, task, status="completed").json()
+    assert done["completed_at"]
+    assert not c.get(f"/api/w/{a}/resources?view=today").json()
+    reopened = update(c, a, done, status="open", due_date=str(today - timedelta(days=1))).json()
+    assert reopened["completed_at"] is None
+    assert c.get(f"/api/w/{a}/resources?view=overdue").json()[0]["id"] == task["id"]
+    update(c, a, reopened, due_date=str(today + timedelta(days=1)))
+    assert len(c.get(f"/api/w/{a}/resources?view=upcoming").json()) == 1
+    make(c, a, content="- [ ] Not a task")
+    assert len(c.get(f"/api/w/{a}/resources?kind=task").json()) == 1
+
+
+def test_collection_cycles_multimembership_and_project_archive(env):
+    c, app, nexus, a, b, _ = env
+    parent = make(c, a, "collection")
+    child = make(c, a, "collection", parent=parent["id"])
+    assert update(c, a, parent, parent=child["id"]).status_code == 422
+    project = make(c, a, "project")
+    note = make(c, a, collections=[parent["id"], child["id"]], project=project["id"])
+    assert len(c.get(f"/api/w/{a}/resources?collection={child['id']}").json()) == 1
+    assert update(c, a, project, status="archived").status_code == 200
+    assert c.get(f"/api/w/{a}/resources/{note['id']}").status_code == 200
+
+
+def test_references_private_retry_and_deleted_target(env):
+    c, app, nexus, a, b, _ = env
+    target = make(c, a, title="Target")
+    source = make(c, a, content=f"[Target]({target['reference']})")
+    backlinks = c.get(f"/api/w/{a}/resources/{target['id']}").json()["backlinks"]
+    assert backlinks[0]["id"] == source["id"]
+    nexus.fail = True
+    app.state.flush(force=True)
+    assert c.get("/api/sync").json()["pending"] > 0
+    nexus.fail = False
+    app.state.flush(force=True)
+    assert c.get("/api/sync").json()["pending"] == 0
+    response = c.post(
+        "/empyrean/v1/resources/resolve",
+        headers={"X-Nexus-Resolver-Key": KEY},
+        json={"resource": source["reference"], "requester": "other"},
+    )
+    assert response.status_code == 403
+    c.post(
+        f"/api/w/{a}/resources/{source['id']}/links",
+        json={"target": target["reference"], "readers": ["other"]},
+    )
+    response = c.post(
+        "/empyrean/v1/resources/resolve",
+        headers={"X-Nexus-Resolver-Key": KEY},
+        json={"resource": source["reference"], "requester": "other"},
+    )
+    assert response.json()["label"] == source["title"]
+    assert update(c, a, target, trashed=True).status_code == 200
+    assert c.delete(f"/api/w/{a}/resources/{target['id']}").status_code == 200
+    assert (
+        c.get(f"/api/w/{a}/resources/{source['id']}").json()["links"][0]["target"]
+        == target["reference"]
+    )
+    assert (
+        c.post(
+            "/empyrean/v1/resources/resolve",
+            headers={"X-Nexus-Resolver-Key": KEY},
+            json={"resource": target["reference"], "requester": "other"},
+        ).status_code
+        == 410
+    )
+
+
+def test_attachments_use_shared_storage_and_scope(env):
+    c, app, nexus, a, b, _ = env
+    note = make(c, a)
+    root = f"/api/w/{a}/resources/{note['id']}/attachments"
+    response = c.post(
+        root, json={"name": "hello.txt", "content": base64.b64encode(b"hello").decode()}
+    )
+    assert response.status_code == 200, response.text
+    aid = response.json()["id"]
+    assert c.get(root + "/" + aid).json()["content"] == base64.b64encode(b"hello").decode()
+    assert c.get(f"/api/w/{b}/resources/{note['id']}/attachments/{aid}").status_code == 404
+    assert c.post(root, json={"name": "bad", "content": "!"}).status_code == 422
+    assert c.delete(root + "/" + aid).status_code == 200
+
+
+def test_workspace_archive_and_trash_restore(env):
+    c, app, nexus, a, b, _ = env
+    note = make(c, a)
+    trashed = update(c, a, note, trashed=True).json()
+    assert c.get(f"/api/w/{a}/resources").json() == []
+    assert len(c.get(f"/api/w/{a}/resources?view=trash").json()) == 1
+    restored = update(c, a, trashed, trashed=False).json()
+    c.put("/api/workspaces/" + a, json={"title": "Personal", "archived": True})
+    assert update(c, a, restored, content="cannot write").status_code == 409
+    assert c.get(f"/api/w/{a}/resources/{note['id']}").status_code == 200
+
+
+def test_markdown_preview_is_sanitized_and_supports_tables(env):
+    c, *_ = env
+    html = c.post(
+        "/api/preview",
+        json={
+            "content": "# Heading\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1))"
+        },
+    ).json()["html"]
+    assert "<h1>" in html and "<table>" in html
+    assert "<script>" not in html and 'href="javascript:' not in html
+
+
+def test_concurrent_edits_never_overwrite_each_other(env):
+    c, app, nexus, a, b, path = env
+    note = make(c, a)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(lambda content: update(c, a, note, content=content).status_code, ["A", "B"])
+        )
+    assert sorted(results) == [200, 409]
+
+
+def test_deleted_reference_stays_editable_and_resolves_deleted(env):
+    c, app, nexus, a, b, path = env
+    target = make(c, a)
+    source = make(c, a, content=f"[target]({target['reference']})")
+    update(c, a, target, trashed=True)
+    c.delete(f"/api/w/{a}/resources/{target['id']}")
+    assert update(c, a, source, title="Can still edit").status_code == 200
+    assert (
+        c.post(f"/api/w/{a}/resolve", json={"target": target["reference"]}).json()["availability"]
+        == "deleted"
+    )
+    assert c.post(f"/api/w/{b}/resolve", json={"target": target["reference"]}).status_code == 404
+
+
+def test_translation_pack_is_text_only_and_falls_back(env):
+    c, app, nexus, a, b, path = env
+    (path / "locales").mkdir()
+    (path / "locales" / "sk.json").write_text(
+        '{"Today":"Dnes","Notes":"Poznámky","Save":"</script><script>bad</script>"}'
+    )
+    response = c.get("/")
+    assert response.status_code == 200
+    assert "/*CATALOGS*/" not in response.text
+    assert "Dnes" in response.text
+    assert "</script><script>bad" not in response.text
+
+
+def test_unavailable_reference_does_not_block_other_outbox_entries(env):
+    c, app, nexus, a, b, path = env
+    source = make(c, a)
+    original = nexus.request
+
+    def partial(method, path, body=None):
+        if path == "/references":
+            raise httpx.ConnectError("reference owner unavailable")
+        return original(method, path, body)
+
+    nexus.request = partial
+    c.post(
+        f"/api/w/{a}/resources/{source['id']}/links", json={"target": "nexus:v1:missing:item:42"}
+    )
+    make(c, a, "task")
+    app.state.flush(force=True)
+    with app.state.db.connect() as db:
+        rows = db.execute("SELECT * FROM outbox").fetchall()
+        assert len(rows) == 1 and rows[0]["path"] == "/references"
+        assert rows[0]["attempts"] == 1
+    nexus.request = original
+    assert c.post("/api/sync").json()["pending"] == 0
+
+
+def test_retry_migration_preserves_existing_database(tmp_path):
+    import sqlite3
+
+    from mnemosyne.db import MIGRATIONS, Database
+
+    path = tmp_path / "old.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.executescript(MIGRATIONS[0] + "PRAGMA user_version=1;")
+        db.execute(
+            "INSERT INTO workspaces VALUES('original','Existing','Europe/Bratislava',0,'2026-09-29')"
+        )
+        db.execute("INSERT INTO outbox(method,path,body) VALUES('POST','/events','{}')")
+    upgraded = Database(path)
+    with upgraded.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("SELECT title FROM workspaces").fetchone()[0] == "Existing"
+        assert db.execute("SELECT attempts FROM outbox").fetchone()[0] == 0

@@ -1,0 +1,57 @@
+# Mnemosyne V1 implementation checkpoint
+
+Canonical source: ../architecture, especially modules/mnemosyne.md V1 boundary,
+application boundary, references, storage and design tokens. Nexus baseline e225da1.
+
+## Scope
+Workspaces; Markdown Notes with autosave, metadata, collections, links, attachments
+and trash; Tasks and derived date views; Projects with independent board columns;
+hierarchical Collections; unique Daily Notes; scoped search; Nexus interoperability.
+Deferred features remain deferred as listed in the canonical architecture.
+
+## Implementation decisions
+- Python/FastAPI and SQLite migrations, matching Nexus conventions. One database,
+  workspace-qualified queries and validated same-workspace relationships.
+- Plain Markdown is authoritative content. Editor plus sanitized rendered preview.
+- Full application in an opaque-origin sandbox, with a constrained parent message
+  bridge to its own API. No Nexus management chrome or owner credentials in module.
+- Generic opt-in Nexus extensions for durable /data volume, shared blobs and
+  full application bridge. Existing manifests/data remain valid and unchanged.
+- Workspace timezone controls calendar-date views; date-only deadlines stay dates.
+- Explicit reference sharing, no automatic foreign resource disclosure.
+
+## Checkpoints
+- [x] Architecture and existing Nexus inspected; identified missing infrastructure.
+- [x] Backend, migrations and isolation tests (13 passing).
+- [x] Application UI and generic shared infrastructure extensions implemented.
+- [ ] Nexus regression tests, deployment, browser QA and final diff review.
+- [ ] Commits using existing Git identity.
+
+Staging note: temporary storage was cleared between sessions. Nexus extension has
+been reconstructed in ignored `.work/nexus` and is being reverified before apply.
+
+## Deployment verification
+
+- Nexus upgraded to 0.1.2 with an additive schema migration and retained volumes.
+- Private consistent backup: `/data/backups/pre-mnemosyne-v1.sqlite3` in Nexus.
+- Existing users, settings, Example Module manifest/token/registration verified
+  equal to the backup. Example Module still responds through Nexus.
+- Mnemosyne installed and healthy at `/app/modules/mnemosyne` through port 12333.
+- Live smoke verified shared blobs, actual Nexus backlinks, API isolation,
+  collections, tasks/date views, unique Daily Notes, export and disable/enable persistence.
+- Test-created Workspaces removed; no seed/demo content.
+- Real Playwright QA found sandbox-native form submission blocked. Fixed with
+  explicit validated button actions without enabling forms in the sandbox.
+- Outbox migration 2 adds per-entry retry backoff so unavailable references cannot
+  block unrelated events. Local content remains authoritative during Nexus outages.
+
+## Handoff
+
+Further QA handed to the user at their explicit request to conserve quota.
+15 backend tests passed; Nexus 88 tests passed; DOM UI tests passed.
+Real browser verified full-page shell, Workspace creation, Markdown autosave,
+preview and reload persistence. Native-form sandbox issue fixed and deployed.
+Browser scenario stopped at task Priority selection: its exact accessible-label
+locator did not match; project/task transition timing also needs manual review.
+Board, remaining browser flows and mobile visual QA are not certified complete.
+Local application: http://localhost:12333/app/modules/mnemosyne

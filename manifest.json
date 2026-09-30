@@ -1,0 +1,64 @@
+{
+  "protocol": 1,
+  "id": "mnemosyne",
+  "name": "Mnemosyne",
+  "description": "Workspace-scoped personal knowledge, notes, tasks and projects.",
+  "version": "1.0.0",
+  "publisher": {
+    "name": "Aureate Empyrean",
+    "originalAuthors": [
+      "Aureate Empyrean contributors"
+    ]
+  },
+  "repository": "https://github.com/Aureate-Empyrean/mnemosyne",
+  "license": "AGPL-3.0-or-later",
+  "nexus": ">=0.1.2,<0.2.0",
+  "container": {
+    "image": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "port": 14333
+  },
+  "capabilities": [
+    "ui.application",
+    "storage.data",
+    "blobs.read",
+    "blobs.write",
+    "events.publish",
+    "references.create",
+    "references.read",
+    "references.resolve"
+  ],
+  "routes": {
+    "ui": "/",
+    "api": "/api",
+    "health": "/health"
+  },
+  "events": {
+    "produces": [
+      "mnemosyne.resource.changed"
+    ],
+    "consumes": []
+  },
+  "resources": [
+    {
+      "type": "note",
+      "resolvable": true
+    },
+    {
+      "type": "task",
+      "resolvable": true
+    },
+    {
+      "type": "project",
+      "resolvable": true
+    },
+    {
+      "type": "collection",
+      "resolvable": true
+    }
+  ],
+  "references": {
+    "version": 1,
+    "read": [],
+    "resolve": []
+  }
+}

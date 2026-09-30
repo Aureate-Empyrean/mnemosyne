@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.data/
+*.pyc
+node_modules/
+manifest.local.json
+artifacts/
+.ruff_cache/
+.agents/
+.aws/
+.codex/
+.work/
+.aws
+.agents
+.codex
