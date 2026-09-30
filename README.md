@@ -18,11 +18,13 @@ Mnemosyne V1 subset. Licensed AGPL-3.0-or-later.
 - Scoped full-content search, explicit resource links, local and Nexus backlinks,
   Module Protocol resolver, retried reference/event outbox and shared attachments.
 - Independent full-window application with violet identity and shared neutral tokens.
-- Home for capture, due work and recent resources; Notes with a browsing pane and
-  editor; Task details beside actionable lists; Project Board/Tasks/Notes/Overview;
-  Collection hierarchy with existing-Note membership and contextual creation.
-- Secondary metadata, attachments and references remain available through disclosure
-  panels instead of dominating the writing and work surfaces.
+- Home for capture, today's work, today's note and recent resources; Notes with a
+  browsing pane and writing-first editor; Tasks with in-list completion (with Undo),
+  context-aware quick add and a task inspector; Project Overview/Board/Tasks/Notes;
+  a Collection tree with membership browsing; recovery-first Trash.
+- Metadata is edited through chips and popovers; attachments, links and identity
+  live in a details drawer. Motion follows every state change and respects
+  reduced-motion preferences. See `docs/EXPERIENCE.md`.
 
 ## Run through Nexus
 
@@ -56,6 +58,14 @@ Production dependencies are pinned in `requirements.lock`. The application uses
 FastAPI and migrated SQLite, matching Nexus deployment conventions. `/data` is a
 broker-managed durable volume. An image rebuild never initializes example data.
 Theme values live at the top of `frontend/style.css`; resource accents are separate.
+
+## Typography
+
+Roboto is the interface typeface. The Nexus module sandbox does not allow a module
+to deliver fonts, so Roboto is used when installed on the viewer's system and falls
+back to the system sans-serif. Greater Theory is an optional poster face for the
+fixed `MNEMOSYNE` / `AUREATE EMPYREAN` marks only; it is never bundled, and the app
+uses it only when a locally installed copy is detected.
 
 ## Persistence and portability
 
@@ -115,7 +125,10 @@ embeds, templates and offline synchronization remain deferred by architecture.
 ## Localization
 
 Nexus owns the locale preference. Mnemosyne inherits it for presentation and uses
-`Intl` for date formatting. English messages live in `frontend/locales/en.json`.
+`Intl` for dates, relative times, numbers and plural rules. Every interface string
+except the fixed brand marks goes through the message catalog; English messages
+live in `frontend/locales/en.json`. Messages may contain `{placeholders}`; plural messages
+come as a one/other pair of keys.
 Community text catalogs can be placed in the persistent volume at
 `/data/locales/<language-tag>.json`, mapping the same English message keys to plain
 text. Exact locale, base language and English form the fallback chain. Catalogs
