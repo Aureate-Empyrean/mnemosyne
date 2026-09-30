@@ -55,7 +55,7 @@ const api = (path, method = "GET", body) =>
 const state = {
   workspaces: [],
   wid: null,
-  view: "today",
+  view: "home",
   resources: [],
   selected: null,
   context: { applications: [], locale: "en" },
@@ -90,15 +90,11 @@ const fields = [
 ];
 const glyph = { note: "▤", task: "☑", project: "◇", collection: "▦" };
 const views = {
-  today: ["☀", t("Today")],
-  inbox: ["↓", t("Inbox")],
-  upcoming: ["↗", t("Upcoming")],
-  overdue: ["◷", t("Overdue")],
-  note: ["▤", t("Notes")],
-  task: ["☑", t("All Tasks")],
-  project: ["◇", t("Projects")],
-  collection: ["▦", t("Collections")],
-  trash: ["⌫", t("Trash")],
+  home: ["⌂", "Home"],
+  note: ["▤", "Notes"],
+  task: ["☑", "Tasks"],
+  project: ["◇", "Projects"],
+  collection: ["▦", "Collections"],
 };
 function toast(text, error = false) {
   $("#toast").textContent = text;
@@ -106,12 +102,26 @@ function toast(text, error = false) {
   $("#toast").hidden = false;
   setTimeout(() => ($("#toast").hidden = true), 6500);
 }
+let activeActions = 0,
+  nextFocus = null;
+function focusInput(selector) {
+  if (activeActions) nextFocus = selector;
+  else $(selector)?.focus();
+}
 function guard(fn) {
   return async (...args) => {
+    activeActions++;
+    $("#app").inert = true;
     try {
       return await fn(...args);
     } catch (e) {
       toast(e.message, true);
+    } finally {
+      $("#app").inert = --activeActions > 0;
+      if (!activeActions && nextFocus) {
+        $(nextFocus)?.focus();
+        nextFocus = null;
+      }
     }
   };
 }
@@ -172,6 +182,7 @@ function modal(title, html, onSubmit) {
   const d = $("#dialog");
   d.innerHTML = `<form method="dialog"><div class="row between"><h2>${esc(title)}</h2><button type="button" id="close-modal" class="quiet" aria-label="${esc(t("Close"))}">×</button></div>${html}<div class="row end"><button type="button" id="cancel-modal">${esc(t("Cancel"))}</button><button class="primary" type="submit">${esc(t("Save"))}</button></div></form>`;
   d.showModal();
+  d.querySelector("input")?.focus();
   $("#close-modal").onclick = $("#cancel-modal").onclick = () => d.close();
   d.querySelector("form").onsubmit = guard(async (e) => {
     e.preventDefault();
@@ -182,14 +193,13 @@ function modal(title, html, onSubmit) {
 }
 async function confirmAction(title, text, fn) {
   modal(title, `<p>${esc(text)}</p>`, fn);
-}
-function resourceRow(r) {
-  return `<button class="resource-row" data-open="${r.id}" style="${r.accent ? "border-left:3px solid " + esc(r.accent) : ""}"><span class="resource-icon">${esc(r.icon || glyph[r.kind])}</span><span class="grow"><strong>${esc(r.title)}${r.pinned ? " · ★" : ""}</strong><small>${esc(r.kind)}${r.tags.length ? " · " + esc(r.tags.join(" · ")) : ""}${r.due_date ? " · " + esc(displayDate(r.due_date)) : ""}</small></span>${r.kind === "task" ? `<span class="badge ${esc(r.priority)}">${esc(r.priority === "none" ? r.status : r.priority)}</span>` : ""}${r.kind === "project" ? `<span class="badge">${esc(r.status)}</span>` : ""}</button>`;
-}
-function wireRows() {
-  document
-    .querySelectorAll("[data-open]")
-    .forEach((el) => (el.onclick = guard(() => openResource(el.dataset.open))));
+  const action = $("#dialog [data-submit]");
+  action.textContent = title.startsWith("Empty")
+    ? "Empty Trash"
+    : title.startsWith("Delete")
+      ? "Delete permanently"
+      : "Confirm";
+  action.classList.add("danger");
 }
 function empty(title, description) {
   return `<div class="empty"><div class="empty-icon">✧</div><h2>${esc(title)}</h2><p>${esc(description)}</p></div>`;
@@ -205,22 +215,23 @@ function shell() {
       )
       .join(
         "",
-      )}</select><button id="workspace-settings" class="quiet" aria-label="${esc(t("Manage Workspaces"))}">⋯</button></div></div><nav aria-label="${esc(t("Mnemosyne navigation"))}">${Object.entries(
+      )}</select><button id="workspace-settings" class="quiet" aria-label="${esc(t("Manage Workspaces"))}">Manage</button></div></div><nav aria-label="${esc(t("Mnemosyne navigation"))}">${Object.entries(
       views,
     )
       .map(
         ([key, [symbol, label]], i) =>
-          `${i === 4 ? '<div class="nav-label">Your knowledge</div>' : ""}<button data-view="${key}" class="${state.view === key && !state.selected ? "active" : ""}"><span class="nav-symbol">${symbol}</span>${esc(t(label))}</button>`,
+          `<button data-view="${key}" class="${state.view === key ? "active" : ""}"><span class="nav-symbol">${symbol}</span>${esc(t(label))}</button>`,
       )
       .join(
         "",
-      )}</nav><div class="sidebar-bottom"><button id="daily" class="quiet">◫ &nbsp; Daily Note</button><button id="sync-retry" class="quiet small">${esc(t("Nexus sync"))}</button><button id="switch-app" class="quiet">⇄ &nbsp; Applications</button><small>${esc(t("Knowledge, with a place to belong."))}</small></div></aside><main class="main"><header class="topbar"><div class="breadcrumb">${esc(workspace?.title || t("Your knowledge"))}<span>/</span>${esc(state.selected?.kind || views[state.view]?.[1] || state.view)}</div><input id="search" class="search" type="search" aria-label="${esc(t("Search active Workspace"))}" placeholder="${esc(t("Search this Workspace…"))}" value="${esc(state.query)}"></header><div class="content" id="content"></div></main></div>`;
+      )}</nav><div class="sidebar-bottom"><button id="daily" class="quiet">◫ &nbsp; Daily Note</button><button id="sync-retry" class="quiet small">${esc(t("Nexus sync"))}</button><button id="switch-app" class="quiet">⇄ &nbsp; Applications</button><button data-view="trash" class="quiet">⌫ &nbsp; Trash</button><button id="export" class="quiet small">Export Workspace</button></div></aside><main class="main"><header class="topbar"><div class="breadcrumb">${esc(workspace?.title || t("Your knowledge"))}<span>/</span>${esc(views[state.view]?.[1] || t("Trash"))}</div><input id="search" class="search" type="search" aria-label="${esc(t("Search active Workspace"))}" placeholder="${esc(t("Search this Workspace…"))}" value="${esc(state.query)}"></header><div class="content" id="content"></div></main></div>`;
   $("#workspace-select").onchange = guard(async (e) => {
     await save();
     state.wid = e.target.value;
     state.selected = null;
     state.filter = null;
     state.query = "";
+    state.view = "home";
     await reload();
   });
   button("workspace-settings", manageWorkspaces);
@@ -237,11 +248,14 @@ function shell() {
     await syncStatus();
   });
   syncStatus().catch(() => {});
-  button("daily", async () => {
-    await save();
-    const r = await api(wp("/daily/" + day()), "POST");
-    await openResource(r.id);
-  });
+  button("daily", openDaily);
+  button("export", async () =>
+    download(
+      "mnemosyne-" + ws().title + ".json",
+      JSON.stringify(await api(wp("/export")), null, 2),
+      "application/json",
+    ),
+  );
   button("switch-app", () => {
     const d = $("#dialog");
     d.innerHTML = `<h2>${esc(t("Applications"))}</h2><div class="list"><button data-app="nexus">${esc(t("Nexus · Control center"))}</button>${state.context.applications.map((a) => `<button data-app="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div><p><button id="close-apps">${esc(t("Close"))}</button></p>`;
@@ -283,8 +297,12 @@ async function reload() {
   state.resources = resources;
   shell();
   if (!state.wid) return welcome();
-  if (state.selected) return renderEditor();
+  if (state.view === "note" && !state.selected && !state.query) {
+    const first = resources.find((r) => r.kind === "note");
+    if (first) state.selected = await api(wp("/resources/" + first.id));
+  }
   await renderList();
+  if (state.selected && !state.query && state.view !== "trash") renderEditor();
 }
 function welcome() {
   $("#content").innerHTML =
@@ -309,6 +327,8 @@ function workspaceForm(existing) {
       );
       state.workspaces = await api("/api/workspaces");
       state.wid = r.id;
+      state.view = "home";
+      state.query = "";
       state.selected = null;
       await reload();
     },
@@ -334,62 +354,377 @@ async function manageWorkspaces() {
     (b) =>
       (b.onclick = guard(async () => {
         state.wid = b.dataset.workspace;
+        state.view = "home";
+        state.query = "";
         await reload();
       })),
   );
 }
-async function renderList() {
-  let title = state.query ? t("Search results") : views[state.view][1];
-  let params = new URLSearchParams();
-  if (state.query) params.set("q", state.query);
-  else if (["note", "task", "project", "collection"].includes(state.view))
-    params.set("kind", state.view);
-  else params.set("view", state.view);
-  if (state.filter) {
-    params.set("collection", state.filter.id);
-    title = state.filter.title;
-  }
-  let rows = await api(wp("/resources?" + params.toString()));
-  if (state.view === "project" && !state.query && !state.showArchived)
-    rows = rows.filter((r) => r.status !== "archived");
-  const kind = ["note", "project", "collection"].includes(state.view)
-    ? state.view
-    : "task";
-  $("#content").innerHTML =
-    `<div class="page-heading"><div><div class="eyebrow">${esc(ws().archived ? t("Archived Workspace") : ws().title)}</div><h1>${esc(title)}</h1><p class="subtitle">${state.view === "today" && !state.query ? esc(displayDate(day())) + " · Make room for what matters." : rows.length + " " + (rows.length === 1 ? "resource" : "resources") + " in this Workspace"}</p></div><div class="row">${state.view === "project" ? `<button id="toggle-archived" class="quiet">${state.showArchived ? t("Hide archived") : t("Show archived")}</button>` : ""}<button id="export" class="quiet">${esc(t("Export"))}</button>${!ws().archived && state.view !== "trash" ? `<button id="new" class="primary">+ New ${kind}</button>` : ""}</div></div>${!ws().archived && ["today", "inbox", "task"].includes(state.view) && !state.query ? '<form id="capture" class="capture"><select name="kind" aria-label="Capture type"><option value="task">Task</option><option value="note">Note</option></select><input name="title" aria-label="Quick capture" placeholder="Capture a thought or something to do…" required maxlength="200"><button type="submit">Add</button></form>' : ""}<div class="list">${rows.length ? rows.map(resourceRow).join("") : empty(state.query ? t("Nothing found") : state.view === "today" ? "A little space to focus" : t("Nothing here yet"), state.query ? t("Try another title, tag or phrase. Search stays within this Workspace.") : state.view === "today" ? t("Tasks starting or due today will appear here. Capture something, or open your Daily Note.") : t("Create your first ") + kind + " when you’re ready.")}</div>`;
-  button("toggle-archived", async () => {
-    state.showArchived = !state.showArchived;
-    await renderList();
-  });
-  button("new", () => create(kind));
-  button("export", async () =>
-    download(
-      "mnemosyne-" + ws().title + ".json",
-      JSON.stringify(await api(wp("/export")), null, 2),
-      "application/json",
-    ),
+function resourceRow(r) {
+  const context = state.resources.find((x) => x.id === r.project)?.title;
+  const meta =
+    r.kind === "task"
+      ? [
+          r.due_date
+            ? `${r.due_date < day() && r.status === "open" ? "Overdue · " : ""}${displayDate(r.due_date)}`
+            : "",
+          r.priority !== "none" ? r.priority : "",
+          context,
+          r.status === "cancelled" ? "Cancelled" : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : r.kind === "note"
+        ? r.content.replace(/[#*`>\[\]]/g, "").slice(0, 100) || "Empty note"
+        : r.status === "open"
+          ? ""
+          : r.status;
+  return `<div class="item-row ${r.id === state.selected?.id ? "selected" : ""} ${r.status === "completed" ? "completed" : ""}">${r.kind === "task" ? `<input type="checkbox" data-complete="${r.id}" aria-label="${esc((r.status === "completed" ? "Reopen " : "Complete ") + r.title)}" ${r.status === "completed" ? "checked" : ""} ${ws()?.archived || r.status === "cancelled" ? "disabled" : ""}>` : ""}<button class="resource-row" data-open="${r.id}" ${r.accent ? `style="border-left:3px solid ${esc(r.accent)}"` : ""}><span class="grow"><strong>${esc(r.icon)} ${esc(r.title)}${r.pinned ? " · ★" : ""}</strong>${meta ? `<small>${esc(meta)}</small>` : ""}</span></button></div>`;
+}
+function wireRows() {
+  document
+    .querySelectorAll("[data-open]")
+    .forEach((el) => (el.onclick = guard(() => openResource(el.dataset.open))));
+  document.querySelectorAll("[data-complete]").forEach(
+    (el) =>
+      (el.onchange = guard(async () => {
+        el.disabled = true;
+        try {
+          await save();
+          const r = await api(wp("/resources/" + el.dataset.complete));
+          const changed = await putResource(r, {
+            status: el.checked ? "completed" : "open",
+          });
+          if (state.selected?.id === r.id)
+            Object.assign(state.selected, changed);
+          await reload();
+        } catch (e) {
+          el.checked = !el.checked;
+          throw e;
+        } finally {
+          el.disabled = !!ws()?.archived;
+        }
+      })),
   );
-  if ($("#capture"))
-    $("#capture").onsubmit = guard(async (e) => {
-      e.preventDefault();
-      const f = new FormData(e.target);
-      await create(f.get("kind"), f.get("title"));
+}
+function putResource(r, changes) {
+  return api(wp("/resources/" + r.id), "PUT", {
+    ...Object.fromEntries(
+      fields.filter((k) => r[k] !== undefined).map((k) => [k, r[k]]),
+    ),
+    ...changes,
+  });
+}
+function heading(title, actions = "") {
+  return `<div class="page-heading"><h1>${esc(t(title))}</h1><div class="row wrap">${actions}</div></div>`;
+}
+function newButton(kind, label) {
+  return ws().archived
+    ? ""
+    : `<button id="new" class="primary">+ ${esc(label || "New " + kind)}</button>`;
+}
+function taskRows(rows) {
+  return rows.length
+    ? rows.map(resourceRow).join("")
+    : '<p class="muted empty-line">No tasks here.</p>';
+}
+const taskViews = {
+  today: "Today",
+  inbox: "Inbox",
+  upcoming: "Upcoming",
+  overdue: "Overdue",
+  completed: "Completed",
+  all: "All Tasks",
+};
+function taskFilter(rows, view) {
+  return rows.filter(
+    (r) =>
+      r.kind === "task" &&
+      (view === "all" ||
+        (view === "completed"
+          ? r.status === "completed"
+          : r.status === "open" &&
+            (view === "inbox"
+              ? !r.project
+              : view === "today"
+                ? r.due_date === day() || r.start_date === day()
+                : view === "overdue"
+                  ? r.due_date && r.due_date < day()
+                  : r.due_date > day() || r.start_date > day()))),
+  );
+}
+function captureMarkup(home = false, project = null) {
+  if (ws().archived) return "";
+  return `<form id="capture" class="capture"><div class="row">${home ? '<select name="kind" aria-label="Capture type"><option value="task">Task</option><option value="note">Note</option></select>' : ""}<input name="title" aria-label="Quick capture" placeholder="${home ? "Capture a thought or task…" : "Add a task…"}" required maxlength="200"><button type="submit">Add</button></div><details class="capture-options"><summary>Deadline, priority, project</summary><div class="field-grid"><label>Deadline<input type="date" name="due_date"></label><label>Priority<select name="priority"><option value="none">None</option><option>low</option><option>medium</option><option>high</option><option>urgent</option></select></label><label>Project<select name="project">${options("project", project)}</select></label></div></details></form>`;
+}
+function wireCapture() {
+  if (!$("#capture")) return;
+  $("#capture").onsubmit = guard(async (e) => {
+    e.preventDefault();
+    await save();
+    const f = new FormData(e.target),
+      title = f.get("title").trim();
+    if (!title) return;
+    const kind = f.get("kind") || "task";
+    const r = await api(wp("/resources"), "POST", {
+      kind,
+      title,
+      project: f.get("project") || null,
+      ...(kind === "task"
+        ? {
+            due_date: f.get("due_date") || null,
+            priority: f.get("priority") || "none",
+          }
+        : {}),
     });
+    if (kind === "note") {
+      await openResource(r.id);
+      focusInput("#markdown");
+    } else {
+      await reload();
+      focusInput('#capture input[name="title"]');
+      toast("Task added");
+    }
+  });
   activateForm($("#capture"));
+}
+function collectionTree(parent = null, depth = 0) {
+  const collections = state.resources.filter((r) => r.kind === "collection");
+  return collections
+    .filter(
+      (r) =>
+        r.parent === parent ||
+        (!parent && r.parent && !collections.some((c) => c.id === r.parent)),
+    )
+    .map(
+      (r) =>
+        `<div style="--depth:${depth}"><button class="tree-item ${state.selected?.id === r.id ? "active" : ""}" data-open="${r.id}">▦ ${esc(r.title)}</button></div>${collectionTree(r.id, depth + 1)}`,
+    )
+    .join("");
+}
+async function renderList() {
+  const content = $("#content");
+  if (state.query) {
+    const rows = await api(
+      wp("/resources?q=" + encodeURIComponent(state.query)),
+    );
+    content.innerHTML =
+      heading("Search results") +
+      `<p class="muted">${esc(state.query)}</p><div class="list">${rows.length ? rows.map(resourceRow).join("") : empty("Nothing found", "Try another title, tag or phrase. Search stays within this Workspace.")}</div>`;
+  } else if (state.view === "trash") {
+    return renderTrash();
+  } else if (state.view === "home") {
+    const overdue = taskFilter(state.resources, "overdue");
+    const today = taskFilter(state.resources, "today").filter(
+      (r) => !overdue.some((o) => o.id === r.id),
+    );
+    content.innerHTML =
+      heading("Home", '<button id="home-daily">Open Daily Note</button>') +
+      captureMarkup(true) +
+      `<div class="home-grid"><section>${overdue.length ? '<h2 class="danger">Overdue</h2>' + taskRows(overdue) : ""}<h2 class="section-heading">Today <span class="muted small">${esc(displayDate(day()))}</span></h2>${taskRows(today)}</section><section><h2>Recently edited</h2>${
+        [...state.resources]
+          .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+          .slice(0, 8)
+          .map(resourceRow)
+          .join("") || '<p class="muted">Your recent work will appear here.</p>'
+      }</section></div>`;
+    button("home-daily", openDaily);
+  } else if (state.view === "note") {
+    const notes = state.resources.filter((r) => r.kind === "note");
+    content.innerHTML = `<div class="notes-layout"><section class="browse-pane">${heading("Notes", newButton("note"))}<input id="note-filter" type="search" aria-label="Filter Notes" placeholder="Find a note…"><div id="note-list">${notes.map(resourceRow).join("") || '<p class="muted">Create a note to start writing.</p>'}</div></section><section id="detail" class="note-detail">${empty("Start a note", "Choose a note or create one to start writing.")}</section></div>`;
+    $("#note-filter").oninput = (e) => {
+      $("#note-list").innerHTML = notes
+        .filter((n) =>
+          (n.title + " " + n.content)
+            .toLowerCase()
+            .includes(e.target.value.toLowerCase()),
+        )
+        .map(resourceRow)
+        .join("");
+      wireRows();
+    };
+    button("new", () => create("note"));
+  } else if (state.view === "task") {
+    const view = state.taskView || "today",
+      overdue = taskFilter(state.resources, "overdue");
+    const rows = taskFilter(state.resources, view).filter(
+      (r) => view !== "today" || !overdue.some((o) => o.id === r.id),
+    );
+    content.innerHTML =
+      heading("Tasks") +
+      `<div class="tabs" aria-label="Task views">${Object.entries(taskViews)
+        .map(
+          ([v, label]) =>
+            `<button data-task-view="${v}" class="${v === view ? "active" : ""}">${label}</button>`,
+        )
+        .join(
+          "",
+        )}</div><div class="tasks-layout ${state.selected ? "with-detail" : ""}"><section>${captureMarkup()}${view === "today" && overdue.length ? '<h2 class="danger">Overdue</h2>' + taskRows(overdue) + '<h2 class="section-heading">Today</h2>' : ""}<div class="list">${taskRows(rows)}</div></section>${state.selected ? '<section id="detail" class="task-detail"></section>' : ""}</div>`;
+    document.querySelectorAll("[data-task-view]").forEach(
+      (b) =>
+        (b.onclick = guard(async () => {
+          await save();
+          state.taskView = b.dataset.taskView;
+          state.selected = null;
+          await reload();
+        })),
+    );
+  } else if (state.view === "project") {
+    content.innerHTML = state.selected
+      ? '<section id="detail"></section>'
+      : heading(
+          "Projects",
+          `<button id="toggle-archived" class="quiet">${state.showArchived ? "Hide archived" : "Show archived"}</button>` +
+            newButton("project"),
+        ) +
+        `<div class="project-list">${
+          state.resources
+            .filter(
+              (r) =>
+                r.kind === "project" &&
+                (state.showArchived || r.status !== "archived"),
+            )
+            .map(
+              (r) =>
+                `<div class="project-summary">${resourceRow(r)}<p class="muted">${esc(r.content.slice(0, 180))}</p><div class="small">${state.resources
+                  .filter(
+                    (t) =>
+                      t.kind === "task" &&
+                      t.project === r.id &&
+                      t.status === "open",
+                  )
+                  .slice(0, 3)
+                  .map(resourceRow)
+                  .join("")}</div></div>`,
+            )
+            .join("") ||
+          '<p class="muted">Create a project to bring related work together.</p>'
+        }</div>`;
+    button("new", () => createNamed("project"));
+    button("toggle-archived", async () => {
+      state.showArchived = !state.showArchived;
+      await reload();
+    });
+  } else if (state.view === "collection") {
+    content.innerHTML = `<div class="notes-layout"><section class="browse-pane">${heading("Collections", newButton("collection", "New"))}<div class="tree">${collectionTree() || '<p class="muted">Organize Notes in Collections.</p>'}</div></section><section id="detail">${empty("Choose a Collection", "Browse its Notes, or create a Collection to organize them.")}</section></div>`;
+    button("new", () => createNamed("collection"));
+  }
+  wireCapture();
   wireRows();
 }
-async function create(kind, title = t("Untitled")) {
+async function openDaily() {
+  await save();
+  const r = await api(wp("/daily/" + day()), "POST");
+  await openResource(r.id);
+}
+async function createNamed(kind, parent = null) {
+  modal(
+    "New " + kind,
+    '<label>Name<input name="title" required maxlength="200"></label>',
+    async (f) => {
+      await save();
+      const r = await api(wp("/resources"), "POST", {
+        kind,
+        title: f.get("title"),
+        status: kind === "project" ? "active" : "open",
+        parent,
+      });
+      await openResource(r.id);
+    },
+  );
+}
+async function renderTrash() {
+  const [rows, policy] = await Promise.all([
+    api(wp("/resources?view=trash")),
+    api(wp("/trash/policy")),
+  ]);
+  $("#content").innerHTML =
+    heading(
+      "Trash",
+      `<button id="empty-trash" class="danger" ${!rows.length || ws().archived ? "disabled" : ""}>Empty Trash</button>`,
+    ) +
+    `<div class="trash-policy"><label>Automatically delete after<select id="retention" ${ws().archived ? "disabled" : ""}>${[null, 7, 14, 30, 60, 90].map((days) => `<option value="${days ?? "never"}" ${days === policy.days ? "selected" : ""}>${days === null ? "Never" : days + " days"}</option>`).join("")}</select></label><p class="muted small">Time is measured from when an item enters Trash. ${policy.days === null ? "Automatic deletion is off." : "Expired items are permanently deleted within a minute, including in archived Workspaces."}</p></div><div class="row trash-selection"><label><input type="checkbox" id="select-all"> Select all</label><button id="restore-selected" disabled>Restore selected</button><button id="delete-selected" class="danger" disabled>Delete selected permanently</button></div><div class="list">${rows.map((r) => `<div class="trash-row"><input type="checkbox" data-trash-select="${r.id}" aria-label="Select ${esc(r.title)}"><div class="grow"><strong>${esc(r.title)}</strong><small>${esc(t(r.kind))} · Deleted ${esc(new Date(r.trashed_at).toLocaleString(state.context.locale))}${policy.days ? " · " + Math.max(0, Math.ceil((new Date(r.trashed_at).getTime() + policy.days * 86400000 - Date.now()) / 86400000)) + " days remaining" : ""}</small></div><button data-restore="${r.id}" ${ws().archived ? "disabled" : ""}>Restore</button><button data-delete="${r.id}" class="danger" ${ws().archived ? "disabled" : ""}>Delete permanently</button></div>`).join("") || empty("Trash is empty", "Items you move to Trash can be restored here.")}</div>`;
+  const selected = () =>
+    [...document.querySelectorAll("[data-trash-select]:checked")].map(
+      (e) => e.dataset.trashSelect,
+    );
+  const update = () => {
+    $("#restore-selected").disabled = $("#delete-selected").disabled =
+      !selected().length || !!ws().archived;
+    $("#select-all").checked =
+      !!rows.length && selected().length === rows.length;
+    $("#select-all").indeterminate =
+      selected().length > 0 && selected().length < rows.length;
+  };
+  document
+    .querySelectorAll("[data-trash-select]")
+    .forEach((e) => (e.onchange = update));
+  $("#select-all").onchange = (e) => {
+    document
+      .querySelectorAll("[data-trash-select]")
+      .forEach((x) => (x.checked = e.target.checked));
+    update();
+  };
+  const action = async (action, ids = []) => {
+    await api(wp("/trash"), "POST", {
+      action,
+      ids,
+      confirmed: action !== "restore",
+    });
+    await reload();
+  };
+  const deletion = (ids, empty = false) =>
+    confirmAction(
+      empty ? "Empty Trash?" : "Delete permanently?",
+      "This cannot be undone. " +
+        (empty
+          ? "Every item in this Workspace’s Trash"
+          : "The selected items") +
+        " will be permanently deleted. Surviving work is kept; links to deleted items remain unresolved.",
+      () => action(empty ? "empty" : "delete", ids),
+    );
+  document
+    .querySelectorAll("[data-restore]")
+    .forEach(
+      (b) => (b.onclick = guard(() => action("restore", [b.dataset.restore]))),
+    );
+  document
+    .querySelectorAll("[data-delete]")
+    .forEach((b) => (b.onclick = () => deletion([b.dataset.delete])));
+  button("restore-selected", () => action("restore", selected()));
+  button("delete-selected", () => deletion(selected()));
+  button("empty-trash", () => deletion([], true));
+  $("#retention").onchange = guard(async (e) => {
+    const days = e.target.value === "never" ? null : Number(e.target.value);
+    const change = async () => {
+      await api(wp("/trash/policy"), "PUT", { days });
+      await reload();
+    };
+    if (days !== null && (policy.days === null || days < policy.days)) {
+      e.target.value = policy.days ?? "never";
+      confirmAction(
+        "Change retention?",
+        "Items already older than the new retention period will be permanently deleted during the next cleanup.",
+        change,
+      );
+    } else await change();
+  });
+}
+async function create(kind, title = t("Untitled"), extra = {}) {
   await save();
   const r = await api(wp("/resources"), "POST", {
     kind,
     title,
     status: kind === "project" ? "active" : "open",
+    ...extra,
   });
   await openResource(r.id);
+  if (kind === "note") focusInput("#markdown");
 }
 async function openResource(id) {
   await save();
   state.selected = await api(wp("/resources/" + id));
+  state.view = state.selected.kind;
   state.query = "";
   previewMode = false;
   await reload();
@@ -411,22 +746,16 @@ function selectField(key, label, values, selected) {
 }
 function renderEditor() {
   const r = state.selected,
-    readOnly = !!ws().archived;
-  $("#content").innerHTML =
-    `<div class="row between" style="margin-bottom:25px"><button id="back" class="quiet">← ${views[state.view]?.[1] || t("Back")}</button><div class="row"><span id="save-state" class="save-state">${esc(t("Saved"))}</span><button id="save-now">${esc(t("Save"))}</button><button id="trash" class="quiet ${r.trashed ? "" : "danger"}">${r.trashed ? t("Restore") : t("Move to Trash")}</button>${r.trashed ? '<button id="delete" class="danger">Delete permanently</button>' : ""}</div></div><div class="editor-layout"><section class="editor-main"><div class="eyebrow">${esc(r.daily_date ? t("Daily Note · ") + displayDate(r.daily_date) : r.kind)}</div><input class="title-input" data-field="title" aria-label="${esc(t("Title"))}" value="${esc(r.title)}" maxlength="200"><div class="toolbar"><button data-insert="# ">${esc(t("H1"))}</button><button data-insert="## ">${esc(t("H2"))}</button><button data-wrap="**">${esc(t("Bold"))}</button><button data-wrap="*">${esc(t("Italic"))}</button><button data-insert="- ">${esc(t("List"))}</button><button data-insert="- [ ] ">${esc(t("Checklist"))}</button><button data-insert="> ">${esc(t("Quote"))}</button><button id="insert-code">${esc(t("Code"))}</button><button id="insert-table">${esc(t("Table"))}</button><button id="insert-link">${esc(t("Note link"))}</button><button id="preview-toggle">${esc(t("Preview"))}</button></div><textarea id="markdown" class="markdown-input" data-field="content" aria-label="${esc(t("Markdown content"))}" placeholder="${esc(t("Start writing…"))}" maxlength="40000">${esc(r.content)}</textarea><article id="preview" class="preview" hidden></article>${r.kind === "task" ? `<section><h3>${esc(t("Checklist"))}</h3><div id="checklist"></div><form id="add-check" class="row"><input id="check-text" aria-label="${esc(t("New checklist item"))}" placeholder="${esc(t("Add a step…"))}" maxlength="500"><button>${esc(t("Add"))}</button></form></section>` : ""}${r.kind === "project" ? '<section><div class="row between section-heading"><h2>Project board</h2><button id="project-task">+ Task</button></div><p class="muted small">Columns organize work. Task lifecycle is independent.</p><div class="board" id="board"></div><h2 class="section-heading">Related Notes</h2><div id="project-notes" class="list"></div></section>' : ""}${r.kind === "collection" ? '<section><h2>Notes in this Collection</h2><div id="collection-notes" class="list"></div><h2 class="section-heading">Child Collections</h2><div id="collection-children" class="list"></div></section>' : ""}<section><h2 class="section-heading">${esc(t("Attachments"))}</h2><div id="attachments"></div><label>${esc(t("Add a file · up to 1 MiB"))}<input id="file" type="file"></label><p class="small muted">${esc(t("Files live in Nexus shared storage."))}</p></section><section><h2 class="section-heading">${esc(t("Links & backlinks"))}</h2><div id="links"></div><button id="add-reference">+ Link a resource</button><button id="index-backlinks" class="quiet">${esc(t("Refresh Nexus backlinks"))}</button><div id="external-backlinks"></div><h3>${esc(t("Notes and resources linking here"))}</h3><div class="list">${r.backlinks?.map(resourceRow).join("") || '<p class="muted small">No backlinks in this Workspace.</p>'}</div></section></section><aside class="properties"><h3>${esc(t("Properties"))}</h3>${r.kind === "task" ? selectField("status", t("Lifecycle"), ["open", "completed", "cancelled"], r.status) + selectField("priority", t("Priority"), ["none", "low", "medium", "high", "urgent"], r.priority) : ""}${r.kind === "project" ? selectField("status", t("Lifecycle"), ["active", "on-hold", "completed", "archived"], r.status) : ""}${["task", "project"].includes(r.kind) ? `<label>${esc(t("Start date"))}<input type="date" data-field="start_date" value="${r.start_date || ""}"></label><label>${esc(t("Deadline"))}<input type="date" data-field="due_date" value="${r.due_date || ""}"></label>${r.completed_at ? `<p class="small muted">Completed ${esc(new Date(r.completed_at).toLocaleString(state.context.locale))}</p>` : ""}` : ""}${["note", "task"].includes(r.kind) ? `<label>${esc(t("Project"))}<select aria-label="${esc(t("Project"))}" data-field="project">${options("project", r.project)}</select></label>` : ""}${r.kind === "task" ? `<label>${esc(t("Related Note"))}<select aria-label="${esc(t("Related Note"))}" data-field="related_note">${options("note", r.related_note)}</select></label>` + selectField("board_column", t("Board column"), ["Backlog", "In progress", "Review", "Done"], r.board_column) : ""}${r.kind === "collection" ? `<label>${esc(t("Parent Collection"))}<select aria-label="${esc(t("Parent Collection"))}" data-field="parent">${options("collection", r.parent, r.id)}</select></label>` : ""}<label>${esc(t("Tags (comma separated)"))}<input data-field="tags" value="${esc(r.tags.join(", "))}"></label><div class="row"><label>${esc(t("Icon"))}<input data-field="icon" value="${esc(r.icon)}" maxlength="8"></label><label>${esc(t("Accent"))}<input type="color" data-field="accent" value="${r.accent || "#8b7cf6"}"></label></div><button id="reset-accent" class="quiet small">${esc(t("Reset resource accent"))}</button><label><input type="checkbox" data-field="pinned" ${r.pinned ? "checked" : ""}> Pinned / favorite</label>${
-      r.kind === "note"
-        ? `<h3>${esc(t("Collections"))}</h3><div class="checks">${
-            state.resources
-              .filter((x) => x.kind === "collection")
-              .map(
-                (c) =>
-                  `<label><input data-collection="${c.id}" type="checkbox" ${r.collections.includes(c.id) ? "checked" : ""}>${esc(c.title)}</label>`,
-              )
-              .join("") ||
-            '<p class="muted small">Create a Collection to organize Notes.</p>'
-          }</div>`
-        : ""
-    }<details><summary>${esc(t("Resource identity"))}</summary><p class="ref">${esc(r.reference)}</p></details><p class="small muted">Updated ${esc(new Date(r.updated_at).toLocaleString(state.context.locale))}</p></aside></div>`;
+    readOnly = !!ws().archived || !!r.trashed;
+  $("#detail").innerHTML = editorMarkup(r);
+  button("detail-complete", async () => {
+    state.selected.status = $("#detail-complete").checked
+      ? "completed"
+      : "open";
+    markDirty();
+    await save();
+    await reload();
+  });
   button("back", async () => {
     await save();
     state.selected = null;
@@ -434,26 +763,28 @@ function renderEditor() {
   });
   button("save-now", () => save());
   button("trash", async () => {
-    state.selected.trashed = !state.selected.trashed;
-    markDirty();
     await save();
+    if (r.trashed)
+      await api(wp("/trash"), "POST", { action: "restore", ids: [r.id] });
+    else await putResource(r, { trashed: true });
     state.selected = null;
     await reload();
+    if (!r.trashed) {
+      toast("Moved to Trash");
+      const undo = document.createElement("button");
+      undo.textContent = "Undo";
+      const wid = state.wid;
+      undo.onclick = guard(async () => {
+        await api("/api/w/" + wid + "/trash", "POST", {
+          action: "restore",
+          ids: [r.id],
+        });
+        if (wid === state.wid) await openResource(r.id);
+        $("#toast").hidden = true;
+      });
+      $("#toast").append(undo);
+    }
   });
-  button("delete", () =>
-    confirmAction(
-      t("Permanently delete?"),
-      t(
-        "The resource cannot be restored. Incoming references will remain unresolved.",
-      ),
-      async () => {
-        await api(wp("/resources/" + r.id), "DELETE");
-        dirty = false;
-        state.selected = null;
-        await reload();
-      },
-    ),
-  );
   document.querySelectorAll("[data-field]").forEach(
     (el) =>
       (el.oninput = () => {
@@ -564,6 +895,32 @@ function renderEditor() {
   if (r.kind === "task") renderChecklist();
   if (r.kind === "project") renderBoard();
   if (r.kind === "collection") {
+    button("collection-note", () =>
+      create("note", "Untitled", { collections: [r.id] }),
+    );
+    button("child-collection", () => createNamed("collection", r.id));
+    button("add-members", () =>
+      modal(
+        "Add Notes",
+        `<div class="checks">${
+          state.resources
+            .filter((n) => n.kind === "note" && !n.collections.includes(r.id))
+            .map(
+              (n) =>
+                `<label><input type="checkbox" name="notes" value="${n.id}">${esc(n.title)}</label>`,
+            )
+            .join("") || "<p>All Notes already belong here.</p>"
+        }</div>`,
+        async (f) => {
+          await save();
+          for (const id of f.getAll("notes")) {
+            const n = await api(wp("/resources/" + id));
+            await putResource(n, { collections: [...n.collections, r.id] });
+          }
+          await reload();
+        },
+      ),
+    );
     const notes = state.resources.filter((n) => n.collections.includes(r.id));
     $("#collection-notes").innerHTML =
       notes.map(resourceRow).join("") ||
@@ -629,9 +986,10 @@ function renderEditor() {
   if (readOnly)
     document
       .querySelectorAll(
-        "[data-field],[data-collection],#file,#save-now,#trash,#delete,.toolbar button,#add-reference,#reset-accent,#add-check button",
+        "[data-field],[data-collection],#file,#save-now,.toolbar button,#add-reference,#reset-accent,#add-check button,[data-check],[data-check-text],[data-remove-check],[data-remove-file],[data-unlink],#collection-note,#add-members,#child-collection",
       )
       .forEach((x) => (x.disabled = true));
+  if (ws().archived) $("#trash").disabled = true;
 }
 function markDirty() {
   dirty = true;
@@ -670,6 +1028,18 @@ async function save() {
       current.revision = result.revision;
       current.updated_at = result.updated_at;
       current.completed_at = result.completed_at;
+      current.trashed_at = result.trashed_at;
+      const listed = state.resources.find((r) => r.id === current.id);
+      if (listed) Object.assign(listed, current);
+      document.querySelectorAll(`[data-open="${current.id}"]`).forEach((el) => {
+        const row = el.closest(".item-row");
+        if (row) {
+          const template = document.createElement("template");
+          template.innerHTML = resourceRow(current);
+          row.replaceWith(template.content.firstElementChild);
+        }
+      });
+      wireRows();
       if (el) el.textContent = dirty ? t("Unsaved") : t("Saved");
     })
     .catch((e) => {
@@ -722,35 +1092,82 @@ function renderChecklist() {
   };
   activateForm($("#add-check"));
 }
+function editorMarkup(r) {
+  const task = r.kind === "task",
+    note = r.kind === "note",
+    project = r.kind === "project",
+    collection = r.kind === "collection";
+  const select = (key, label, kind) =>
+    `<label>${label}<select aria-label="${label}" data-field="${key}">${options(kind, r[key], r.id)}</select></label>`;
+  const tags = `<label>Tags (comma separated)<input data-field="tags" value="${esc(r.tags.join(", "))}"></label>`;
+  const description = `<textarea id="markdown" class="markdown-input" data-field="content" aria-label="${note ? "Markdown content" : "Description"}" placeholder="${note ? "Start writing…" : "Add a description…"}" maxlength="40000">${esc(r.content)}</textarea><article id="preview" class="preview" hidden></article>`;
+  const toolbar = `<div class="toolbar"><button data-insert="# ">H1</button><button data-insert="## ">H2</button><button data-wrap="**">Bold</button><button data-wrap="*">Italic</button><button data-insert="- ">List</button><button data-insert="- [ ] ">Checklist</button><button data-insert="> ">Quote</button><button id="insert-code">Code</button><button id="insert-table">Table</button><button id="insert-link">Note link</button><button id="preview-toggle">Preview</button></div>`;
+  const customization = `<div class="field-grid"><label>Icon<input data-field="icon" value="${esc(r.icon)}" maxlength="8"></label><label>Accent<input type="color" data-field="accent" value="${r.accent || "#8b7cf6"}"></label></div><button id="reset-accent" class="quiet small">Reset resource accent</button><label><input type="checkbox" data-field="pinned" ${r.pinned ? "checked" : ""}> Pinned / favorite</label>`;
+  const noteProperties = `${tags}${select("project", "Project", "project")}<h3>Collections</h3><div class="checks">${
+    state.resources
+      .filter((c) => c.kind === "collection")
+      .map(
+        (c) =>
+          `<label><input data-collection="${c.id}" type="checkbox" ${r.collections.includes(c.id) ? "checked" : ""}>${esc(c.title)}</label>`,
+      )
+      .join("") || '<p class="muted">No Collections yet.</p>'
+  }</div>`;
+  const taskProperties = `<div class="field-grid"><label>Deadline<input type="date" data-field="due_date" value="${r.due_date || ""}"></label>${selectField("priority", "Priority", ["none", "low", "medium", "high", "urgent"], r.priority)}${select("project", "Project", "project")}</div>${tags}<h3>Checklist</h3><div id="checklist"></div><form id="add-check" class="row"><input id="check-text" aria-label="New checklist item" placeholder="Add a step…" maxlength="500"><button>Add</button></form>`;
+  const secondaryTask = `<div class="field-grid">${selectField("status", "Lifecycle", ["open", "completed", "cancelled"], r.status)}<label>Start date<input type="date" data-field="start_date" value="${r.start_date || ""}"></label>${select("related_note", "Related Note", "note")}${selectField("board_column", "Board column", ["Backlog", "In progress", "Review", "Done"], r.board_column)}</div>${r.completed_at ? `<p class="small muted">Completed ${esc(new Date(r.completed_at).toLocaleString(state.context.locale))}</p>` : ""}`;
+  const shared = `<details class="secondary"><summary>Attachments</summary><div id="attachments"></div><label>Add a file · up to 1 MiB<input id="file" type="file"></label></details><details class="secondary"><summary>Links & backlinks</summary><div id="links"></div><div class="row wrap"><button id="add-reference">+ Link a resource</button><button id="index-backlinks" class="quiet">Refresh Nexus backlinks</button></div><div id="external-backlinks"></div><h3>Notes and resources linking here</h3><div class="list">${r.backlinks?.map(resourceRow).join("") || '<p class="muted small">No backlinks in this Workspace.</p>'}</div></details>`;
+  const board = `<div class="tabs" aria-label="Project views">${["Board", "Tasks", "Notes", "Overview"].map((v) => `<button data-project-view="${v}" class="${(state.projectView || "Board") === v ? "active" : ""}">${v}</button>`).join("")}</div><div id="project-work"></div>`;
+  const organized = `<div class="row wrap collection-actions"><button id="collection-note" ${ws().archived ? "disabled" : ""}>+ New note here</button><button id="add-members" ${ws().archived ? "disabled" : ""}>Add existing Notes</button><button id="child-collection" ${ws().archived ? "disabled" : ""}>+ Child Collection</button></div><div id="collection-children"></div><h2 class="section-heading">Notes</h2><div id="collection-notes"></div>`;
+  return `<div class="editor-actions row between">${note ? "<span></span>" : `<button id="back" class="quiet">${task ? "Close" : "← " + (project ? "Projects" : "Collections")}</button>`}<div class="row"><span id="save-state" class="save-state">Saved</span><button id="save-now" class="quiet">Save</button></div></div>${r.trashed ? '<p class="trash-banner">This item is in Trash. Restore it to continue editing.</p>' : ""}<div class="editor-main ${esc(r.kind)}-editor"><div class="eyebrow">${r.daily_date ? "Daily Note · " + esc(displayDate(r.daily_date)) : task ? "Task" : project ? "Project" : collection ? "Collection" : ""}</div><div class="row title-row">${task ? `<input type="checkbox" id="detail-complete" aria-label="Complete task" ${r.status === "completed" ? "checked" : ""} ${ws().archived || r.status === "cancelled" || r.trashed ? "disabled" : ""}>` : ""}<input class="title-input" data-field="title" aria-label="Title" value="${esc(r.title)}" maxlength="200"></div>${project ? selectField("status", "Project status", ["active", "on-hold", "completed", "archived"], r.status) + board : collection ? organized : note ? toolbar + description : description + taskProperties}${project || collection ? `<details class="secondary" ${project && state.projectView === "Overview" ? "open" : ""}><summary>Description & organization</summary>${description}${project ? `<div class="field-grid"><label>Start date<input type="date" data-field="start_date" value="${r.start_date || ""}"></label><label>Deadline<input type="date" data-field="due_date" value="${r.due_date || ""}"></label></div>` : select("parent", "Parent Collection", "collection")}${tags}</details>` : ""}<details class="secondary"><summary>${note ? "Note details" : task ? "More details" : "Appearance"}</summary>${note ? noteProperties : task ? secondaryTask : ""}${customization}<details><summary>Resource identity</summary><p class="ref">${esc(r.reference)}</p></details><p class="small muted">Updated ${esc(new Date(r.updated_at).toLocaleString(state.context.locale))}</p></details>${shared}<div class="row end"><button id="trash" class="quiet danger">${r.trashed ? "Restore" : "Move to Trash"}</button></div></div>`;
+}
 function renderBoard() {
   const r = state.selected,
-    tasks = state.resources.filter(
-      (t) => t.kind === "task" && t.project === r.id,
-    );
-  $("#board").innerHTML = ["Backlog", "In progress", "Review", "Done"]
-    .map(
-      (c) =>
-        `<div class="column"><h3>${c} <span class="muted">${tasks.filter((t) => t.board_column === c).length}</span></h3>${tasks
-          .filter((t) => t.board_column === c)
-          .map(resourceRow)
-          .join("")}</div>`,
-    )
-    .join("");
-  $("#project-notes").innerHTML =
-    state.resources
-      .filter((t) => t.kind === "note" && t.project === r.id)
-      .map(resourceRow)
-      .join("") ||
-    '<p class="muted small">Assign Notes to this Project from their properties.</p>';
-  button("project-task", async () => {
-    await save();
-    const task = await api(wp("/resources"), "POST", {
-      kind: "task",
-      title: t("Untitled task"),
-      project: r.id,
-    });
-    await openResource(task.id);
-  });
+    view = state.projectView || "Board";
+  const tasks = state.resources.filter(
+    (t) => t.kind === "task" && t.project === r.id,
+  );
+  const notes = state.resources.filter(
+    (t) => t.kind === "note" && t.project === r.id,
+  );
+  $("#project-work").innerHTML =
+    view === "Notes"
+      ? `<button id="project-note" ${ws().archived ? "disabled" : ""}>+ New project note</button><div class="list section-heading">${notes.map(resourceRow).join("") || '<p class="muted">No project Notes yet.</p>'}</div>`
+      : view === "Overview"
+        ? `<h2 class="section-heading">Open work</h2>${taskRows(tasks.filter((t) => t.status === "open"))}<h2 class="section-heading">Related Notes</h2>${notes.map(resourceRow).join("") || '<p class="muted">No related Notes.</p>'}`
+        : captureMarkup(false, r.id) +
+          (view === "Tasks"
+            ? taskRows(tasks)
+            : `<div class="board">${["Backlog", "In progress", "Review", "Done"]
+                .map(
+                  (c) =>
+                    `<section class="column"><h3>${c}</h3>${tasks
+                      .filter((t) => t.board_column === c)
+                      .map(
+                        (t) =>
+                          `<div class="board-card">${resourceRow(t)}<select data-move="${t.id}" aria-label="Move ${esc(t.title)}" ${ws().archived ? "disabled" : ""}>${["Backlog", "In progress", "Review", "Done"].map((v) => `<option ${v === c ? "selected" : ""}>${v}</option>`).join("")}</select></div>`,
+                      )
+                      .join("")}</section>`,
+                )
+                .join("")}</div>`);
+  document.querySelectorAll("[data-project-view]").forEach(
+    (b) =>
+      (b.onclick = guard(async () => {
+        await save();
+        state.projectView = b.dataset.projectView;
+        await reload();
+      })),
+  );
+  document.querySelectorAll("[data-move]").forEach(
+    (el) =>
+      (el.onchange = guard(async () => {
+        await save();
+        const task = await api(wp("/resources/" + el.dataset.move));
+        await putResource(task, { board_column: el.value });
+        await reload();
+      })),
+  );
+  button("project-note", () => create("note", "Untitled", { project: r.id }));
+  wireCapture();
+  wireRows();
 }
 function renderAttachments() {
   const r = state.selected;
@@ -867,6 +1284,9 @@ guard(async () => {
     state.workspaces.find((w) => !w.archived)?.id ||
     state.workspaces[0]?.id ||
     null;
-  if (deep) state.selected = await api(wp("/resources/" + deep[2]));
+  if (deep) {
+    state.selected = await api(wp("/resources/" + deep[2]));
+    state.view = state.selected.kind;
+  }
   await reload();
 })();

@@ -163,8 +163,10 @@ def test_tasks_dates_checklists_and_independent_board(env):
     assert c.get(f"/api/w/{a}/resources?view=overdue").json()[0]["id"] == task["id"]
     update(c, a, reopened, due_date=str(today + timedelta(days=1)))
     assert len(c.get(f"/api/w/{a}/resources?view=upcoming").json()) == 1
+    make(c, a, "task", start_date=str(today + timedelta(days=2)))
+    assert len(c.get(f"/api/w/{a}/resources?view=upcoming").json()) == 2
     make(c, a, content="- [ ] Not a task")
-    assert len(c.get(f"/api/w/{a}/resources?kind=task").json()) == 1
+    assert len(c.get(f"/api/w/{a}/resources?kind=task").json()) == 2
 
 
 def test_collection_cycles_multimembership_and_project_archive(env):
@@ -208,7 +210,7 @@ def test_references_private_retry_and_deleted_target(env):
     )
     assert response.json()["label"] == source["title"]
     assert update(c, a, target, trashed=True).status_code == 200
-    assert c.delete(f"/api/w/{a}/resources/{target['id']}").status_code == 200
+    assert c.delete(f"/api/w/{a}/resources/{target['id']}?confirmed=true").status_code == 200
     assert (
         c.get(f"/api/w/{a}/resources/{source['id']}").json()["links"][0]["target"]
         == target["reference"]
@@ -277,7 +279,7 @@ def test_deleted_reference_stays_editable_and_resolves_deleted(env):
     target = make(c, a)
     source = make(c, a, content=f"[target]({target['reference']})")
     update(c, a, target, trashed=True)
-    c.delete(f"/api/w/{a}/resources/{target['id']}")
+    c.delete(f"/api/w/{a}/resources/{target['id']}?confirmed=true")
     assert update(c, a, source, title="Can still edit").status_code == 200
     assert (
         c.post(f"/api/w/{a}/resolve", json={"target": target["reference"]}).json()["availability"]
@@ -337,6 +339,153 @@ def test_retry_migration_preserves_existing_database(tmp_path):
         db.execute("INSERT INTO outbox(method,path,body) VALUES('POST','/events','{}')")
     upgraded = Database(path)
     with upgraded.connect() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert db.execute("SELECT title FROM workspaces").fetchone()[0] == "Existing"
         assert db.execute("SELECT attempts FROM outbox").fetchone()[0] == 0
+
+
+def test_trash_timestamp_restore_and_relations(env):
+    c, app, nexus, a, b, _ = env
+    project = make(c, a, "project")
+    note = make(c, a, project=project["id"])
+    parent = update(c, a, project, trashed=True).json()
+    assert parent["trashed_at"]
+    # Existing relationships remain editable when their target is recoverable.
+    assert update(c, a, note, content="Still working").status_code == 200
+    trashed = update(c, a, parent, title="Changed in Trash").json()
+    assert trashed["trashed_at"] == parent["trashed_at"]
+    assert (
+        c.post(f"/api/w/{a}/trash", json={"action": "restore", "ids": [parent["id"]]}).status_code
+        == 200
+    )
+    restored = c.get(f"/api/w/{a}/resources/{parent['id']}").json()
+    assert restored["trashed_at"] is None and not restored["trashed"]
+    assert c.get(f"/api/w/{a}/resources/{note['id']}").json()["project"] == parent["id"]
+
+
+def test_trash_confirmation_batch_atomicity_and_scope(env):
+    c, app, nexus, a, b, _ = env
+    first = update(c, a, make(c, a), trashed=True).json()
+    foreign = update(c, b, make(c, b), trashed=True).json()
+    root = f"/api/w/{a}/trash"
+    assert c.delete(f"/api/w/{a}/resources/{first['id']}").status_code == 422
+    assert c.post(root, json={"action": "empty"}).status_code == 422
+    for action in ("restore", "delete"):
+        assert (
+            c.post(
+                root,
+                json={"action": action, "ids": [first["id"], foreign["id"]], "confirmed": True},
+            ).status_code
+            == 404
+        )
+        assert c.get(f"/api/w/{a}/resources/{first['id']}").json()["trashed"]
+    live = make(c, a)
+    assert (
+        c.post(
+            root, json={"action": "delete", "ids": [first["id"], live["id"]], "confirmed": True}
+        ).status_code
+        == 409
+    )
+    assert c.post(root, json={"action": "empty", "confirmed": True}).json()["affected"] == 1
+    assert c.get(f"/api/w/{a}/resources/{live['id']}").status_code == 200
+    assert c.get(f"/api/w/{b}/resources/{foreign['id']}").status_code == 200
+
+
+def test_permanent_delete_preserves_survivors_references_and_blobs(env):
+    c, app, nexus, a, b, _ = env
+    project = make(c, a, "project")
+    parent = make(c, a, "collection")
+    child = make(c, a, "collection", parent=parent["id"])
+    note = make(
+        c,
+        a,
+        project=project["id"],
+        collections=[parent["id"], child["id"]],
+        content=f"[project]({project['reference']})",
+    )
+    c.post(
+        f"/api/w/{a}/resources/{project['id']}/attachments",
+        json={"name": "shared.txt", "content": "aGVsbG8="},
+    )
+    for r in (project, parent):
+        update(c, a, r, trashed=True)
+    assert (
+        c.post(f"/api/w/{a}/trash", json={"action": "empty", "confirmed": True}).json()["affected"]
+        == 2
+    )
+    saved = c.get(f"/api/w/{a}/resources/{note['id']}").json()
+    assert saved["project"] is None and saved["collections"] == [child["id"]]
+    assert saved["links"][0]["target"] == project["reference"]
+    assert saved["revision"] > note["revision"]
+    assert c.get(f"/api/w/{a}/resources/{child['id']}").json()["parent"] is None
+    assert nexus.blobs["blob"] == "aGVsbG8="
+    assert not any(
+        method == "DELETE" and path.startswith("/blobs") for method, path, _ in nexus.calls
+    )
+
+
+def test_retention_exact_boundary_never_and_retrash(tmp_path, monkeypatch):
+    from datetime import timezone
+
+    monkeypatch.setenv("NEXUS_RESOLVER_KEY", KEY)
+    instant = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+    app = create_app(tmp_path, SharedServices(), clock=lambda: instant[0])
+    with TestClient(app, headers={"X-Nexus-Gateway-Key": KEY}) as c:
+        a = c.post("/api/workspaces", json={"title": "A"}).json()["id"]
+        b = c.post("/api/workspaces", json={"title": "B"}).json()["id"]
+        assert c.get(f"/api/w/{a}/trash/policy").json() == {"days": 30}
+        assert c.put(f"/api/w/{b}/trash/policy", json={"days": None}).status_code == 200
+        assert c.put(f"/api/w/{a}/trash/policy", json={"days": 1}).status_code == 422
+        old = update(c, a, make(c, a), trashed=True).json()
+        kept = update(c, b, make(c, b), trashed=True).json()
+        retrash = update(c, a, make(c, a), trashed=True).json()
+        instant[0] += timedelta(days=29, hours=23, minutes=59, seconds=59)
+        assert app.state.cleanup_trash() == 0
+        c.post(f"/api/w/{a}/trash", json={"action": "restore", "ids": [retrash["id"]]})
+        restored = c.get(f"/api/w/{a}/resources/{retrash['id']}").json()
+        fresh = update(c, a, restored, trashed=True).json()
+        assert fresh["trashed_at"] != old["trashed_at"]
+        # Archived Workspaces retain their declared automatic retention policy.
+        c.put("/api/workspaces/" + a, json={"title": "A", "archived": True})
+        instant[0] += timedelta(seconds=1)
+        assert app.state.cleanup_trash() == 1
+        assert c.get(f"/api/w/{a}/resources/{old['id']}").status_code == 404
+        assert c.get(f"/api/w/{a}/resources/{fresh['id']}").status_code == 200
+        instant[0] += timedelta(days=365)
+        assert app.state.cleanup_trash() == 1
+        assert c.get(f"/api/w/{b}/resources/{kept['id']}").status_code == 200
+
+
+def test_trash_migration_grants_existing_items_full_retention(tmp_path):
+    import sqlite3
+    from datetime import timezone
+
+    from mnemosyne.db import MIGRATIONS, Database
+
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(MIGRATIONS[0] + MIGRATIONS[1] + "PRAGMA user_version=2;")
+        conn.execute("INSERT INTO workspaces VALUES('w','Existing','UTC',0,'2000-01-01')")
+        conn.execute(
+            "INSERT INTO resources(id,workspace,kind,title,status,trashed,created_at,updated_at) VALUES('n','w','note','Preserved','open',1,'2000-01-01','2000-01-01')"
+        )
+    before = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db = Database(path)
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM resources").fetchone()
+        assert datetime.fromisoformat(row["trashed_at"]) >= before
+        assert row["title"] == "Preserved"
+        assert conn.execute("SELECT trash_retention_days FROM workspaces").fetchone()[0] == 30
+
+
+def test_completed_view_and_daily_trash_recovery(env):
+    c, app, nexus, a, b, _ = env
+    task = make(c, a, "task")
+    update(c, a, task, status="completed")
+    assert c.get(f"/api/w/{a}/resources?view=completed").json()[0]["id"] == task["id"]
+    note = c.post(f"/api/w/{a}/daily/2026-09-30").json()
+    update(c, a, note, trashed=True)
+    existing = c.post(f"/api/w/{a}/daily/2026-09-30").json()
+    assert existing["id"] == note["id"] and existing["trashed"]
+    c.post(f"/api/w/{a}/trash", json={"action": "restore", "ids": [note["id"]]})
+    assert not c.post(f"/api/w/{a}/daily/2026-09-30").json()["trashed"]

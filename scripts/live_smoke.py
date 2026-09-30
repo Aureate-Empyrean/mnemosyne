@@ -38,6 +38,7 @@ FIELDS = {
 
 def run():
     with owner_client() as c:
+        initial_modules = {m["id"]: m["state"] for m in c.get("/api/v1/modules").json()}
 
         def req(method, path, body=None):
             response = c.request(method, "/modules/mnemosyne/api" + path, json=body)
@@ -124,7 +125,8 @@ def run():
         )
         assert "sandbox allow-scripts" in page.headers["content-security-policy"]
         assert c.get("/api/v1/system").json()["version"] == "0.1.2"
-        assert c.get("/modules/empyrean-example/").status_code == 200
+        if initial_modules.get("empyrean-example") == "enabled":
+            assert c.get("/modules/empyrean-example/").status_code == 200
         c.post("/api/v1/modules/mnemosyne/disable").raise_for_status()
         c.post("/api/v1/modules/mnemosyne/enable").raise_for_status()
         for _ in range(15):
@@ -140,6 +142,7 @@ def run():
             )
             == b"shared storage verified"
         )
+        assert {m["id"]: m["state"] for m in c.get("/api/v1/modules").json()} == initial_modules
         # Remove only this run's relationships and records through the actual API.
         links = req("GET", root + "/resources/" + note["id"])["links"]
         for link in links:
@@ -155,7 +158,7 @@ def run():
                 content="",
                 trashed=True,
             )
-            req("DELETE", root + "/resources/" + current["id"])
+            req("DELETE", root + "/resources/" + current["id"] + "?confirmed=true")
         for wid in workspaces:
             req(
                 "PUT",
@@ -176,7 +179,7 @@ def run():
                         "real Nexus backlinks",
                         "workspace export",
                         "disable/enable persistence",
-                        "existing Nexus and Example Module",
+                        "existing Nexus and unchanged module states",
                     ],
                     "cleanup_workspaces": workspaces,
                 }

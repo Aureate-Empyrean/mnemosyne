@@ -29,6 +29,11 @@ CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, method TEXT NOT NULL,
 """,
     """ALTER TABLE outbox ADD COLUMN next_attempt REAL NOT NULL DEFAULT 0;
     ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;""",
+    """ALTER TABLE resources ADD COLUMN trashed_at TEXT;
+    ALTER TABLE workspaces ADD COLUMN trash_retention_days INTEGER DEFAULT 30
+      CHECK(trash_retention_days IS NULL OR trash_retention_days IN (7,14,30,60,90));
+    UPDATE resources SET trashed_at=strftime('%Y-%m-%dT%H:%M:%f+00:00','now') WHERE trashed=1;
+    CREATE INDEX trash_expiry ON resources(workspace,trashed,trashed_at);""",
 ]
 
 

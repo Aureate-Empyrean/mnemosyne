@@ -10,13 +10,19 @@ Mnemosyne V1 subset. Licensed AGPL-3.0-or-later.
 - Portable Markdown Notes, autosave with conflict detection, sanitized preview,
   tags, icon/accent, pinned favorites, multiple hierarchical Collections, trash
   and restore, explicit permanent deletion, Daily Notes unique per date/Workspace.
-- Tasks: Inbox, Today, Upcoming, Overdue, lifecycle, priority, start/deadline,
+- Tasks: quick title-and-Enter creation, direct completion, Inbox, Today, Upcoming,
+  Overdue, Completed, All Tasks, lifecycle, priority, start/deadline,
   completion date, checklist, tags, related Notes and Projects.
 - Projects with lifecycle, related Notes/Tasks and a four-column Kanban board;
   board column is independent of task completion.
 - Scoped full-content search, explicit resource links, local and Nexus backlinks,
   Module Protocol resolver, retried reference/event outbox and shared attachments.
 - Independent full-window application with violet identity and shared neutral tokens.
+- Home for capture, due work and recent resources; Notes with a browsing pane and
+  editor; Task details beside actionable lists; Project Board/Tasks/Notes/Overview;
+  Collection hierarchy with existing-Note membership and contextual creation.
+- Secondary metadata, attachments and references remain available through disclosure
+  panels instead of dominating the writing and work surfaces.
 
 ## Run through Nexus
 
@@ -39,6 +45,11 @@ python -m venv .venv
 .venv/bin/pip install -r requirements-dev.lock
 .venv/bin/python -m pytest -q
 .venv/bin/ruff check backend tests scripts
+npm ci
+npm test
+npm run check
+# With local Nexus and Mnemosyne running, plus installed Playwright Chromium:
+node scripts/browser_qa.cjs
 ```
 
 Production dependencies are pinned in `requirements.lock`. The application uses
@@ -67,11 +78,35 @@ resolve scopes must be reviewed in the installation manifest; defaults grant non
 Sharing a link's readers explicitly also grants those modules minimal resolution of
 its source title. No resolver assumes knowledge of an ID means permission.
 
+## Trash
+
+Trash is scoped to each Workspace. Moving an item there is reversible, with an Undo
+shortcut. Restore preserves its original Workspace and surviving relationships.
+Individual and selected permanent deletion, and Empty Trash, require confirmation.
+Deleting a Project or Collection detaches surviving organizational relationships;
+it does not delete their Tasks, Notes or child Collections. Incoming canonical
+references remain unresolved rather than being silently removed. Shared blobs are
+not purged by Mnemosyne.
+
+The Trash screen configures retention per Workspace: Never, 7, 14, 30, 60 or 90 days.
+The default is 30 days from `trashed_at`, independent of last edit/creation time.
+Restoring clears that timestamp; re-trashing starts a new period. Cleanup runs at
+startup and approximately every minute, including for archived Workspaces. Never
+disables automatic deletion. Shortening retention warns about already-expired items.
+The migration gives previously trashed items a fresh retention period, because the
+old schema did not record when deletion happened.
+
+The authenticated API provides `GET/PUT /api/w/{wid}/trash/policy` (`days`: integer
+or null), and `POST /api/w/{wid}/trash` (`action`: restore/delete/empty, `ids` for
+selected items, `confirmed: true` for deletion). Individual `DELETE` requests now
+require `?confirmed=true`. Batch actions validate all IDs before mutating anything.
+
 ## V1 limits
 
 Single installation owner; Workspaces are logical isolation, not separate users.
 Markdown source with rendered preview, not a proprietary block editor. Attachments
-are limited to 1 MiB each. Four fixed board columns. Manual trash purge. Retained
+are limited to 1 MiB each. Four fixed board columns. Root-page reload selects the first active Workspace;
+resource deep links retain their Workspace. Retained
 shared blobs have no automatic garbage collection. Module events/references retry
 from a durable outbox; repeated events can occur after an interrupted acknowledgement.
 Full version history, reminders, recurrence, Canvas, external connectors, advanced

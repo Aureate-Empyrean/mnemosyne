@@ -638,3 +638,481 @@ summary {
     gap: 6px;
   }
 }
+
+/* Domain work surfaces share the same theme, not the same layout. */
+.content {
+  padding: 24px 28px;
+}
+.topbar {
+  padding: 0 28px;
+  height: 64px;
+}
+.sidebar {
+  padding: 24px 16px;
+}
+.workspace-control .row {
+  flex-wrap: wrap;
+}
+.workspace-control select {
+  flex: 1 1 150px;
+}
+.workspace-control button {
+  font-size: 12px;
+  padding: 3px 0;
+}
+.sidebar-bottom {
+  gap: 2px;
+}
+.page-heading {
+  margin-bottom: 20px;
+}
+h1 {
+  font-size: 26px;
+  margin: 0;
+}
+.empty {
+  padding: 40px 18px;
+}
+.empty-line {
+  padding: 14px 0;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.item-row > input {
+  flex: 0 0 auto;
+  margin: 0 10px;
+  width: 17px;
+  height: 17px;
+}
+.item-row .resource-row {
+  border: 0;
+  background: transparent;
+  padding: 11px 10px;
+  min-width: 0;
+  border-radius: 4px;
+}
+.item-row:hover,
+.item-row.selected {
+  background: var(--accent-tint);
+}
+.resource-row strong {
+  overflow-wrap: anywhere;
+}
+.resource-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  color: var(--secondary);
+}
+.resource-row .grow {
+  min-width: 0;
+}
+.item-row.completed strong {
+  color: var(--secondary);
+  text-decoration: line-through;
+}
+.list {
+  gap: 0;
+}
+.capture {
+  display: block;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 22px;
+}
+.capture input {
+  padding: 9px 11px;
+}
+.capture .row > input {
+  flex: 1;
+}
+.capture .capture-options {
+  margin: 7px 0 0;
+  font-size: 12px;
+}
+.capture-options summary {
+  color: var(--muted);
+}
+.capture select {
+  max-width: none;
+}
+.capture > .row > select {
+  max-width: 90px;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.field-grid label {
+  min-width: 0;
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 42px;
+}
+.home-grid > section {
+  min-width: 0;
+}
+.notes-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 28px;
+}
+.browse-pane {
+  border-right: 1px solid var(--line);
+  padding-right: 18px;
+  min-width: 0;
+}
+.browse-pane h1 {
+  font-size: 21px;
+}
+.browse-pane .page-heading {
+  align-items: center;
+  gap: 8px;
+}
+.browse-pane .page-heading button {
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.browse-pane #note-filter {
+  margin-bottom: 10px;
+}
+#note-list,
+.tree {
+  max-height: calc(100vh - 225px);
+  overflow-y: auto;
+}
+.note-detail,
+#detail {
+  min-width: 0;
+}
+.note-detail .editor-main {
+  max-width: 900px;
+  margin: auto;
+}
+.editor-actions {
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.editor-actions .save-state {
+  min-width: 0;
+}
+.title-row {
+  align-items: baseline;
+}
+.title-row > input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.title-input {
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+.eyebrow:empty {
+  display: none;
+}
+.markdown-input {
+  min-height: 48vh;
+  font:
+    15px/1.9 ui-monospace,
+    monospace;
+}
+.task-editor .markdown-input {
+  min-height: 110px;
+  height: 130px;
+  font-family: inherit;
+  background: var(--obsidian);
+  padding: 10px;
+  border: 1px solid var(--line);
+}
+.project-editor .markdown-input,
+.collection-editor .markdown-input {
+  min-height: 120px;
+  height: 160px;
+}
+.toolbar {
+  gap: 0;
+  padding: 6px 0;
+  margin-bottom: 12px;
+}
+.toolbar button {
+  border: 0;
+  color: var(--secondary);
+  padding: 4px 6px;
+}
+.secondary {
+  border-top: 1px solid var(--line);
+  padding: 12px 0 0;
+  margin: 12px 0;
+}
+.secondary > summary {
+  font-size: 12px;
+}
+.secondary[open] > summary {
+  margin-bottom: 15px;
+  color: var(--accent-light);
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+  margin-bottom: 22px;
+}
+.tabs button {
+  background: transparent;
+  border: 0;
+  color: var(--secondary);
+  padding: 6px 12px;
+}
+.tabs button.active {
+  background: var(--accent-tint);
+  color: var(--accent-light);
+}
+.tasks-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+}
+.tasks-layout.with-detail {
+  grid-template-columns: minmax(240px, 1fr) minmax(330px, 1fr);
+}
+.tasks-layout > section {
+  min-width: 0;
+}
+.task-detail {
+  border-left: 1px solid var(--line);
+  padding-left: 24px;
+}
+.task-editor .title-input {
+  font-size: 22px;
+}
+.project-editor > label {
+  max-width: 190px;
+}
+.project-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+.project-summary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--obsidian);
+}
+.project-summary > p {
+  margin: 8px 10px;
+}
+.board {
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 12px;
+}
+.column {
+  padding: 12px;
+}
+.board-card {
+  background: var(--graphite);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+}
+.column .resource-row {
+  padding: 8px 6px;
+  margin: 0;
+  background: transparent;
+}
+.board-card > select {
+  width: calc(100% - 16px);
+  margin: 6px 8px 0;
+  padding: 4px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--secondary);
+}
+.tree-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding-left: calc(8px + min(var(--depth), 8) * 14px);
+  overflow-wrap: anywhere;
+}
+.tree-item.active {
+  color: var(--accent-light);
+  background: var(--accent-tint);
+}
+.collection-actions {
+  margin: 12px 0 20px;
+}
+.trash-policy {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin: 20px 0;
+}
+.trash-policy label {
+  min-width: 180px;
+}
+.trash-selection {
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.trash-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+.trash-row .grow {
+  flex: 1;
+  min-width: 100px;
+  overflow-wrap: anywhere;
+}
+.trash-row small {
+  display: block;
+  color: var(--secondary);
+}
+.trash-row input {
+  flex-shrink: 0;
+}
+.trash-row button {
+  font-size: 12px;
+}
+.trash-banner {
+  border: 1px solid var(--line);
+  padding: 12px;
+  color: var(--secondary);
+}
+#toast button {
+  margin-left: 15px;
+}
+@media (max-width: 1100px) {
+  .notes-layout {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 20px;
+  }
+  .tasks-layout.with-detail {
+    grid-template-columns: minmax(180px, 1fr) minmax(300px, 1.5fr);
+    gap: 15px;
+  }
+  .content {
+    padding: 22px;
+  }
+  .home-grid {
+    gap: 22px;
+  }
+}
+@media (max-width: 800px) {
+  .tasks-layout.with-detail {
+    grid-template-columns: 1fr;
+  }
+  .task-detail {
+    border: 1px solid var(--line);
+    padding: 15px;
+    grid-row: 1;
+  }
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+  .notes-layout {
+    grid-template-columns: 1fr;
+  }
+  .browse-pane {
+    border-right: 0;
+    padding-right: 0;
+  }
+  #note-list,
+  .tree {
+    max-height: 200px;
+  }
+  .trash-row {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 650px) {
+  .sidebar-bottom {
+    flex-wrap: wrap;
+  }
+  .sidebar-bottom button {
+    font-size: 12px;
+  }
+  .sidebar {
+    padding: 14px;
+    gap: 10px;
+  }
+  .workspace-control {
+    padding-top: 6px;
+  }
+  .workspace-control .row {
+    flex-wrap: nowrap;
+  }
+  .workspace-control button {
+    padding: 5px 8px;
+  }
+  .workspace-control select {
+    flex-basis: auto;
+  }
+  .brand {
+    font-size: 16px;
+  }
+  .brand .mark {
+    font-size: 22px;
+  }
+  .content {
+    padding: 18px;
+  }
+  .topbar {
+    padding: 0 18px;
+  }
+  .page-heading {
+    flex-wrap: wrap;
+  }
+  .trash-policy {
+    flex-wrap: wrap;
+    gap: 0;
+  }
+  .capture {
+    padding: 10px;
+  }
+  .capture > .row {
+    flex-wrap: wrap;
+  }
+  .capture > .row input {
+    min-width: 130px;
+  }
+  .board {
+    grid-template-columns: repeat(4, 210px);
+  }
+}
+@media (min-width: 801px) {
+  .project-editor {
+    position: relative;
+  }
+  .project-editor > .eyebrow {
+    display: none;
+  }
+  .project-editor > .title-row {
+    padding-right: 205px;
+    min-height: 66px;
+  }
+  .project-editor > label {
+    position: absolute;
+    right: 0;
+    top: -10px;
+    width: 180px;
+  }
+}

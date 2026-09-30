@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -72,6 +72,16 @@ class Resource(Strict):
     revision: int | None = None
 
 
+class TrashPolicy(Strict):
+    days: int | None = 30
+
+
+class TrashAction(Strict):
+    action: str
+    ids: list[str] = Field(default_factory=list, max_length=1000)
+    confirmed: bool = False
+
+
 class Link(Strict):
     target: str
     readers: list[str] = Field(default_factory=list, max_length=32)
@@ -96,7 +106,8 @@ class Nexus:
             return response.json()
 
 
-def create_app(data_dir=None, nexus=None):
+def create_app(data_dir=None, nexus=None, clock=None):
+    clock = clock or (lambda: datetime.now(timezone.utc))
     db = Database(Path(data_dir or os.getenv("MNEMOSYNE_DATA", "/data")) / "mnemosyne.sqlite3")
     nexus = nexus or Nexus()
     stop = threading.Event()
@@ -139,11 +150,16 @@ def create_app(data_dir=None, nexus=None):
             sync_lock.release()
 
     def worker():
+        last_cleanup = 0.0
         while not stop.wait(3):
+            if time.monotonic() - last_cleanup >= 60:
+                cleanup_trash()
+                last_cleanup = time.monotonic()
             flush()
 
     @asynccontextmanager
     async def lifespan(app):
+        cleanup_trash()
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
         yield
@@ -246,7 +262,8 @@ def create_app(data_dir=None, nexus=None):
             target = getattr(body, key)
             if target:
                 r = resource(conn, wid, target, kind)
-                if r["trashed"]:
+                previous = resource(conn, wid, rid) if rid else None
+                if r["trashed"] and (not previous or previous[key] != target):
                     raise HTTPException(422, "Cannot link a trashed resource")
         if body.parent:
             if body.kind != "collection":
@@ -322,6 +339,9 @@ def create_app(data_dir=None, nexus=None):
         values["tags"] = json.dumps(list(dict.fromkeys(body.tags)))
         values["checklist"] = json.dumps(body.checklist)
         values.update(
+            trashed_at=(old["trashed_at"] if old and old["trashed"] else clock().isoformat())
+            if body.trashed
+            else None,
             updated_at=now(),
             revision=old["revision"] + 1 if old else 1,
             completed_at=(old["completed_at"] if old and old["completed_at"] else now())
@@ -380,7 +400,7 @@ def create_app(data_dir=None, nexus=None):
         wid = uid()
         with db.connect() as conn:
             conn.execute(
-                "INSERT INTO workspaces VALUES(?,?,?,?,?)",
+                "INSERT INTO workspaces(id,title,timezone,archived,created_at) VALUES(?,?,?,?,?)",
                 (wid, body.title, body.timezone, body.archived, now()),
             )
         return {"id": wid}
@@ -424,6 +444,8 @@ def create_app(data_dir=None, nexus=None):
             if q:
                 sql += " AND (instr(lower(title),lower(?))>0 OR instr(lower(content),lower(?))>0 OR instr(lower(tags),lower(?))>0)"
                 args += [q, q, q]
+            if view == "completed":
+                sql += " AND kind='task' AND status='completed'"
             if view in {"today", "upcoming", "overdue", "inbox"}:
                 sql += " AND kind='task' AND status='open'"
                 if view == "inbox":
@@ -431,8 +453,11 @@ def create_app(data_dir=None, nexus=None):
                 elif view == "today":
                     sql += " AND (due_date=? OR start_date=?)"
                     args += [today, today]
+                elif view == "upcoming":
+                    sql += " AND (due_date>? OR start_date>?)"
+                    args += [today, today]
                 else:
-                    sql += " AND due_date " + (">" if view == "upcoming" else "<") + " ?"
+                    sql += " AND due_date<?"
                     args.append(today)
             return [
                 encode(conn, r)
@@ -469,23 +494,100 @@ def create_app(data_dir=None, nexus=None):
         with db.connect() as conn:
             return save(conn, wid, body, rid)
 
-    @app.delete("/api/w/{wid}/resources/{rid}")
-    def delete_resource(wid: str, rid: str):
+    def permanently_delete(conn, wid, row):
+        rid = row["id"]
+        if not row["trashed"]:
+            raise HTTPException(409, "Move resource to Trash first")
+        # Keep surviving work and references; detach only organizational relationships.
+        conn.execute(
+            "UPDATE resources SET revision=revision+1, updated_at=? WHERE workspace=? "
+            "AND id IN (SELECT note FROM memberships WHERE collection=?)",
+            (now(), wid, rid),
+        )
+        for key in ("parent", "project", "related_note"):
+            conn.execute(
+                f"UPDATE resources SET {key}=NULL, revision=revision+1, updated_at=? "
+                f"WHERE workspace=? AND {key}=?",
+                (now(), wid, rid),
+            )
+        conn.execute(
+            "DELETE FROM outbox WHERE link_id IN (SELECT id FROM links WHERE source=?)", (rid,)
+        )
+        conn.execute("INSERT INTO tombstones VALUES(?,?,?)", (rid, row["kind"], wid))
+        conn.execute("DELETE FROM resources WHERE id=? AND workspace=?", (rid, wid))
+        activity(conn, rid, "deleted")
+
+    def cleanup_trash():
+        deleted = 0
+        instant = clock()
+        with db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for ws in conn.execute(
+                "SELECT * FROM workspaces WHERE trash_retention_days IS NOT NULL"
+            ).fetchall():
+                cutoff = instant - timedelta(days=ws["trash_retention_days"])
+                rows = conn.execute(
+                    "SELECT * FROM resources WHERE workspace=? AND trashed=1 AND trashed_at IS NOT NULL",
+                    (ws["id"],),
+                ).fetchall()
+                for row in rows:
+                    if datetime.fromisoformat(row["trashed_at"]) <= cutoff:
+                        permanently_delete(conn, ws["id"], row)
+                        deleted += 1
+        return deleted
+
+    app.state.cleanup_trash = cleanup_trash
+
+    @app.get("/api/w/{wid}/trash/policy")
+    def trash_policy(wid: str):
+        with db.connect() as conn:
+            return {"days": workspace(conn, wid)["trash_retention_days"]}
+
+    @app.put("/api/w/{wid}/trash/policy")
+    def set_trash_policy(wid: str, body: TrashPolicy):
+        if body.days not in (None, 7, 14, 30, 60, 90):
+            raise HTTPException(422, "Choose Never, 7, 14, 30, 60 or 90 days")
         with db.connect() as conn:
             workspace(conn, wid, True)
-            row = resource(conn, wid, rid)
-            if not row["trashed"]:
-                raise HTTPException(409, "Move resource to Trash first")
-            if conn.execute(
-                "SELECT 1 FROM resources WHERE workspace=? AND (parent=? OR project=? OR related_note=?)",
-                (wid, rid, rid, rid),
-            ).fetchone():
-                raise HTTPException(
-                    409, "Remove organizational relationships before permanent deletion"
-                )
-            conn.execute("INSERT INTO tombstones VALUES(?,?,?)", (rid, row["kind"], wid))
-            conn.execute("DELETE FROM resources WHERE id=? AND workspace=?", (rid, wid))
-            activity(conn, rid, "deleted")
+            conn.execute(
+                "UPDATE workspaces SET trash_retention_days=? WHERE id=?", (body.days, wid)
+            )
+        return {"days": body.days}
+
+    @app.post("/api/w/{wid}/trash")
+    def trash_action(wid: str, body: TrashAction):
+        if body.action not in ("restore", "delete", "empty"):
+            raise HTTPException(422, "Unknown Trash action")
+        if body.action != "restore" and not body.confirmed:
+            raise HTTPException(422, "Explicit confirmation required")
+        if body.action != "empty" and not body.ids:
+            raise HTTPException(422, "Select items first")
+        with db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            workspace(conn, wid, True)
+            rows = (
+                conn.execute(
+                    "SELECT * FROM resources WHERE workspace=? AND trashed=1", (wid,)
+                ).fetchall()
+                if body.action == "empty"
+                else [resource(conn, wid, rid) for rid in set(body.ids)]
+            )
+            if any(not row["trashed"] for row in rows):
+                raise HTTPException(409, "Only items in Trash can be restored or deleted")
+            for row in rows:
+                if body.action == "restore":
+                    conn.execute(
+                        "UPDATE resources SET trashed=0,trashed_at=NULL,revision=revision+1,updated_at=? WHERE workspace=? AND id=?",
+                        (now(), wid, row["id"]),
+                    )
+                    activity(conn, row["id"], "restored")
+                else:
+                    permanently_delete(conn, wid, row)
+        return {"affected": len(rows)}
+
+    @app.delete("/api/w/{wid}/resources/{rid}")
+    def delete_resource(wid: str, rid: str, confirmed: bool = False):
+        trash_action(wid, TrashAction(action="delete", ids=[rid], confirmed=confirmed))
         return {"deleted": True}
 
     @app.post("/api/w/{wid}/daily/{day}")
