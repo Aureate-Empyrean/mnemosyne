@@ -345,7 +345,7 @@ def test_retry_migration_preserves_existing_database(tmp_path):
         db.execute("INSERT INTO outbox(method,path,body) VALUES('POST','/events','{}')")
     upgraded = Database(path)
     with upgraded.connect() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
         assert db.execute("SELECT title FROM workspaces").fetchone()[0] == "Existing"
         assert db.execute("SELECT attempts FROM outbox").fetchone()[0] == 0
 
@@ -632,3 +632,12 @@ def test_backup_validation_rejects_foreign_damaged_and_newer_artifacts(env, tmp_
     assert response.status_code == 422
     assert len(c.get("/api/workspaces").json()) == 2
     assert not list(path.glob("*.part")) and not (path / "purge-suspended").exists()
+
+
+def test_last_opened_workspace_is_remembered(env):
+    c, app, nexus, a, b, _ = env
+    assert all(w["opened_at"] is None for w in c.get("/api/workspaces").json())
+    assert c.post(f"/api/workspaces/{b}/open").status_code == 200
+    assert c.post("/api/workspaces/missing/open").status_code == 404
+    opened = {w["id"]: w["opened_at"] for w in c.get("/api/workspaces").json()}
+    assert opened[b] and opened[a] is None

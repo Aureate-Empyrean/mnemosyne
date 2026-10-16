@@ -9,7 +9,7 @@ async function settle() {
   await tick();
   await tick();
 }
-function setup() {
+function setup(options = {}) {
   const dom = new JSDOM(
     '<div id="app"></div><div id="toast" hidden></div><dialog id="dialog"></dialog>',
     { url: "http://localhost/modules/mnemosyne/", runScripts: "outside-only" },
@@ -72,7 +72,7 @@ function setup() {
       if (msg.action === "context")
         result = { applications: [], locale: "en-GB" };
       else if (msg.path === "/api/workspaces")
-        result = [
+        result = options.workspaces || [
           { id: "w1", title: "Personal", timezone: "Europe/Bratislava" },
           { id: "w2", title: "Work", timezone: "Europe/Bratislava" },
         ];
@@ -146,8 +146,8 @@ function setup() {
     $$: (s) => [...w.document.querySelectorAll(s)],
   };
 }
-async function ready() {
-  const x = setup();
+async function ready(options) {
+  const x = setup(options);
   await settle();
   return x;
 }
@@ -169,6 +169,11 @@ test("five primary destinations and workspace-scoped search", async () => {
     work.click();
     await settle();
     assert(x.calls.some((c) => c.path === "/api/w/w2/resources"));
+    assert(
+      x.calls.some(
+        (c) => c.path === "/api/workspaces/w2/open" && c.method === "POST",
+      ),
+    );
     const search = x.$("#search");
     search.value = "private";
     search.dispatchEvent(new x.w.Event("input", { bubbles: true }));
@@ -371,6 +376,33 @@ test("editing Collections keeps memberships of Collections in Trash", async () =
     await pause(80);
     await settle();
     assert.deepEqual(x.resources[0].collections, ["gone"]);
+  } finally {
+    x.dom.window.close();
+  }
+});
+test("reload reopens the last opened active Workspace", async () => {
+  const zone = "Europe/Bratislava";
+  const x = await ready({
+    workspaces: [
+      { id: "w1", title: "Personal", timezone: zone, opened_at: null },
+      {
+        id: "w2",
+        title: "Work",
+        timezone: zone,
+        opened_at: "2026-10-01T08:00:00+00:00",
+      },
+      {
+        id: "w3",
+        title: "Old",
+        timezone: zone,
+        archived: 1,
+        opened_at: "2026-10-09T08:00:00+00:00",
+      },
+    ],
+  });
+  try {
+    assert(x.calls.some((c) => c.path === "/api/w/w2/resources"));
+    assert(!x.calls.some((c) => c.path === "/api/w/w1/resources"));
   } finally {
     x.dom.window.close();
   }
