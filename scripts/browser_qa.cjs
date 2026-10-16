@@ -130,8 +130,9 @@ print(json.dumps({'token':t,'csrf':csrf}))`),
     }
     await ready();
     await page.waitForTimeout(800);
+    await expect(app.getByRole("tab", { name: "Board", selected: true })).toBeVisible();
     await shot("07-project");
-    step("Project creation");
+    step("Project creation opens on the Board");
 
     await app.locator('[data-view="collection"]').click();
     await ready();
@@ -165,6 +166,7 @@ print(json.dumps({'token':t,'csrf':csrf}))`),
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(600);
     await shot("10-mobile-notes");
+    await expect(app.locator("#search")).toHaveAttribute("placeholder", "Search");
     await app.locator('[data-view="task"]').click().catch(() => {});
     await page.waitForTimeout(600);
     await shot("11-mobile-tasks");

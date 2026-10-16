@@ -317,7 +317,7 @@ const state = {
   noteId: null,
   noteContext: null,
   projectId: null,
-  projectTab: "overview",
+  projectTab: "board",
   showClosedProjects: false,
   collectionId: null,
   collectionNoteId: null,
@@ -1158,14 +1158,22 @@ function renderShell() {
   </div>`;
   updateShell();
 }
+// Narrow screens have no room for the Workspace name in the search field.
+const narrow = window.matchMedia?.("(max-width: 760px)") ?? { matches: false };
+function searchPlaceholder() {
+  const input = $("#search");
+  if (!input) return;
+  input.placeholder = narrow.matches
+    ? t("Search")
+    : t("Search {workspace}", { workspace: ws()?.title || "" });
+}
+narrow.addEventListener?.("change", searchPlaceholder);
 function updateShell() {
   const w = ws();
   if (!$("#shell")) return;
   $(".ws-switch").innerHTML =
     `${avatar(w?.title)}<span class="ws-text"><span class="ws-label">${esc(t("Workspace"))}</span><span class="ws-name">${esc(w?.title || "")}</span></span>${icon("chevronsUpDown", "ws-chevron")}`;
-  $("#search").placeholder = t("Search {workspace}", {
-    workspace: w?.title || "",
-  });
+  searchPlaceholder();
   $("#daily-hint").textContent = shortDay(today());
   const count = state.resources.filter(
     (r) => taskIn("overdue", r) || taskIn("today", r),
@@ -1256,7 +1264,7 @@ async function openResource(id, { context } = {}) {
     });
   if (r.kind === "project")
     return go("project", {
-      set: { projectId: id, projectTab: "overview" },
+      set: { projectId: id, projectTab: "board" },
       direction: 1,
     });
   if (r.kind === "collection")
@@ -2388,8 +2396,8 @@ async function renderProject({ token, soft }) {
       <textarea class="project-desc autosize" data-edit="content" rows="1" maxlength="40000" placeholder="${esc(t("What does done look like?"))}" aria-label="${esc(t("Project description"))}" ${ro ? "readonly" : ""}>${esc(p.content)}</textarea>
       ${tabsHtml(
         [
-          ["overview", "Overview"],
           ["board", "Board"],
+          ["overview", "Overview"],
           ["tasks", "Tasks"],
           ["notes", "Notes"],
         ],
@@ -3690,7 +3698,7 @@ const actions = {
     });
     upsert(r);
     await go("project", {
-      set: { projectId: r.id, projectTab: "overview" },
+      set: { projectId: r.id, projectTab: "board" },
       reload: false,
       direction: 1,
     });

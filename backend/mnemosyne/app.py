@@ -169,7 +169,12 @@ def create_app(data_dir=None, nexus=None, clock=None):
                         json.loads(entry["body"]) if entry["body"] else None,
                     )
                 except httpx.HTTPStatusError as exc:
-                    if entry["method"] == "DELETE" and exc.response.status_code == 404:
+                    code = exc.response.status_code
+                    # 404 on DELETE: already gone. 422: Nexus refuses the call as invalid (for
+                    # example a link to a module that is not installed); retrying cannot
+                    # succeed. The link stays local and enumeration publishes it once owner
+                    # reconciliation can accept it.
+                    if (entry["method"] == "DELETE" and code == 404) or code == 422:
                         result = {}
                     else:
                         retry(entry)
