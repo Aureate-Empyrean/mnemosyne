@@ -67,3 +67,24 @@ configuration and the retained storage volume were preserved.
   Existing Trash receives a fresh retention period during migration because its
   historical deletion timestamp was unavailable. Shared blob garbage collection
   remains outside Mnemosyne's ownership.
+
+## Real-browser QA of 1.1.0 on Nexus 0.1.4 — 2026-10-16
+
+`scripts/browser_qa.cjs` was rewritten for the redesigned UI (the old script targeted
+selectors removed by the redesign). Run in the `mcr.microsoft.com/playwright:v1.63.0-noble`
+container against the live LAN installation; it creates `QA <id>` Workspaces, removes
+them afterwards and reconciles the Nexus reference index.
+
+Passed with zero page/console errors: Nexus overview, first-run welcome, Workspace
+creation, Home, embedded Roboto actually loaded and violet accent applied, Note writing
+with autosave, Task quick add with Enter and in-list completion, Project creation,
+Collections and Trash views, second Workspace, reload reopening the last Workspace,
+Note persistence across reload, 390 px layouts without horizontal overflow. The live
+in-place update path (same identity, new image, health verified) was also exercised.
+
+Fixed: on narrow screens the hidden quick-add chips still took width and cut the Home
+capture placeholder; they now wrap below the field.
+
+Still open (design calls, not defects): Projects open on Overview rather than the Board;
+the search placeholder is truncated at 390 px; the Notes list title updates only after
+autosave. Loading states were not exercised (local latency is too low to observe them).
