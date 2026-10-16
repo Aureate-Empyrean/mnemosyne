@@ -115,6 +115,27 @@ class Nexus:
             return response.json()
 
 
+def styles():
+    """Shared tokens first, then the bundled Roboto face (inline: the sandbox has no network),
+    then Mnemosyne's own styles."""
+    font = base64.b64encode((ROOT / "frontend/fonts/Roboto.woff2").read_bytes()).decode()
+    face = (
+        '@font-face{font-family:"Roboto";src:url(data:font/woff2;base64,'
+        + font
+        + ') format("woff2");font-weight:100 900;font-stretch:75% 100%;font-display:swap}'
+    )
+    return "\n".join(
+        [
+            (ROOT / "frontend/aureate-tokens.css").read_text(),
+            face,
+            (ROOT / "frontend/style.css").read_text(),
+        ]
+    )
+
+
+STYLE = styles()
+
+
 def create_app(data_dir=None, nexus=None, clock=None):
     clock = clock or (lambda: datetime.now(timezone.utc))
     db = Database(Path(data_dir or os.getenv("MNEMOSYNE_DATA", "/data")) / "mnemosyne.sqlite3")
@@ -1080,8 +1101,6 @@ def create_app(data_dir=None, nexus=None, clock=None):
             .replace("/*CATALOGS*/ {}", json.dumps(catalogs).replace("<", "\\u003c"))
         )
         html = (ROOT / "frontend/index.html").read_text()
-        return html.replace("/*STYLE*/", (ROOT / "frontend/style.css").read_text()).replace(
-            "/*SCRIPT*/", script
-        )
+        return html.replace("/*STYLE*/", STYLE).replace("/*SCRIPT*/", script)
 
     return app
