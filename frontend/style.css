@@ -3676,6 +3676,18 @@ mark {
   }
 }
 @media (max-width: 760px) {
+  /* Hidden draft chips must not squeeze the capture field; they wrap below it. */
+  .capture {
+    flex-wrap: wrap;
+  }
+  .capture .qa-chips {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .capture:not(:focus-within) .qa-chips:not(:has(.set)),
+  .capture .qa-enter {
+    display: none;
+  }
   body {
     overflow: auto;
   }
