@@ -90,7 +90,7 @@ textarea:focus-visible {
   outline: none;
 }
 ::selection {
-  background: rgba(139, 124, 246, 0.38);
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
 }
 [hidden] {
   display: none !important;
@@ -146,7 +146,9 @@ kbd {
   height: 24px;
   fill: var(--accent-hi);
   flex: none;
-  filter: drop-shadow(0 0 10px rgba(139, 124, 246, 0.35));
+  filter: drop-shadow(
+    0 0 10px color-mix(in srgb, var(--accent) 35%, transparent)
+  );
 }
 .brand-text {
   display: grid;
@@ -1234,7 +1236,7 @@ textarea::placeholder {
 .capture:focus-within {
   background: var(--graphite);
   border-color: var(--accent-line);
-  box-shadow: 0 0 0 4px rgba(139, 124, 246, 0.08);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .qa-plus {
   display: grid;
@@ -1289,7 +1291,7 @@ textarea::placeholder {
 }
 .qa-chip.set.prio-urgent,
 .qa-chip.set.prio-high {
-  background: rgba(242, 148, 148, 0.1);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 .qa-chip.set.prio-urgent {
   color: var(--prio-urgent);
@@ -1353,18 +1355,18 @@ textarea::placeholder {
   background:
     linear-gradient(
       160deg,
-      rgba(139, 124, 246, 0.12),
-      rgba(139, 124, 246, 0.02) 60%
+      color-mix(in srgb, var(--accent) 12%, transparent),
+      color-mix(in srgb, var(--accent) 2%, transparent) 60%
     ),
     var(--obsidian);
-  border: 1px solid rgba(139, 124, 246, 0.18);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   transition:
     border-color var(--motion-base),
     transform var(--motion-base) var(--ease-out),
     box-shadow var(--motion-base);
 }
 .daily-card:hover {
-  border-color: rgba(139, 124, 246, 0.36);
+  border-color: color-mix(in srgb, var(--accent) 36%, transparent);
   transform: translateY(-1px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
@@ -2869,7 +2871,7 @@ input:focus-visible + .box {
   color: var(--danger);
 }
 .toast.error {
-  border-color: rgba(242, 148, 148, 0.3);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 }
 .toast-text {
   flex: 1;
@@ -3133,7 +3135,7 @@ input:focus-visible + .box {
 }
 .column.drop-target {
   border-color: var(--accent-line);
-  background: rgba(139, 124, 246, 0.05);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 .column-head {
   display: flex;
@@ -3453,7 +3455,7 @@ input:focus-visible + .box {
   flex-wrap: wrap;
 }
 mark {
-  background: rgba(139, 124, 246, 0.28);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
   color: var(--text);
   border-radius: 3px;
   padding: 0 1px;
