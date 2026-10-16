@@ -2717,16 +2717,20 @@ function retentionLabel(days) {
     ? t("Never")
     : plural(days, "{count} day", "{count} days");
 }
+// Automatic deletion time; a restored backup may defer it (purge_after) without
+// changing the real deletion time shown to the user.
+function purgeAt(r, days) {
+  const expiry = new Date(r.trashed_at).getTime() + days * 86400000;
+  return r.purge_after
+    ? Math.max(expiry, new Date(r.purge_after).getTime())
+    : expiry;
+}
 function trashRow(r, days) {
   const selected = state.trashSelection.has(r.id);
-  const deleted = new Date(r.trashed_at).getTime();
   const left =
     days === null
       ? null
-      : Math.max(
-          0,
-          Math.ceil((deleted + days * 86400000 - Date.now()) / 86400000),
-        );
+      : Math.max(0, Math.ceil((purgeAt(r, days) - Date.now()) / 86400000));
   const leftText =
     left === null
       ? ""
@@ -2882,8 +2886,7 @@ function retentionMenu(anchor) {
       if (days === current) return;
       if (days !== null && (current === null || days < current)) {
         const expiring = trashCache.rows.filter(
-          (r) =>
-            new Date(r.trashed_at).getTime() + days * 86400000 <= Date.now(),
+          (r) => purgeAt(r, days) <= Date.now(),
         ).length;
         if (expiring) {
           const choice = await confirmDestructive(

@@ -359,6 +359,7 @@ def create_app(data_dir=None, nexus=None, clock=None):
             trashed_at=(old["trashed_at"] if old and old["trashed"] else clock().isoformat())
             if body.trashed
             else None,
+            purge_after=old["purge_after"] if old and old["trashed"] and body.trashed else None,
             updated_at=now(),
             revision=old["revision"] + 1 if old else 1,
             completed_at=(old["completed_at"] if old and old["completed_at"] else now())
@@ -562,7 +563,10 @@ def create_app(data_dir=None, nexus=None, clock=None):
                     (ws["id"],),
                 ).fetchall()
                 for row in rows:
-                    if datetime.fromisoformat(row["trashed_at"]) <= cutoff:
+                    if datetime.fromisoformat(row["trashed_at"]) <= cutoff and (
+                        not row["purge_after"]
+                        or datetime.fromisoformat(row["purge_after"]) <= instant
+                    ):
                         permanently_delete(conn, ws["id"], row)
                         deleted += 1
         return deleted
@@ -608,7 +612,7 @@ def create_app(data_dir=None, nexus=None, clock=None):
             for row in rows:
                 if body.action == "restore":
                     conn.execute(
-                        "UPDATE resources SET trashed=0,trashed_at=NULL,revision=revision+1,updated_at=? WHERE workspace=? AND id=?",
+                        "UPDATE resources SET trashed=0,trashed_at=NULL,purge_after=NULL,revision=revision+1,updated_at=? WHERE workspace=? AND id=?",
                         (now(), wid, row["id"]),
                     )
                     activity(conn, row["id"], "restored")
@@ -910,19 +914,23 @@ def create_app(data_dir=None, nexus=None, clock=None):
         with db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             # Trash that expired while it sat in the backup gets a fresh retention period.
+            # The deletion time users see (trashed_at) stays true; purge_after defers the purge.
             for ws in conn.execute(
                 "SELECT * FROM workspaces WHERE trash_retention_days IS NOT NULL"
             ).fetchall():
-                cutoff = instant - timedelta(days=ws["trash_retention_days"])
+                days = timedelta(days=ws["trash_retention_days"])
                 for row in conn.execute(
-                    "SELECT id,trashed_at FROM resources WHERE workspace=? AND trashed=1 "
-                    "AND trashed_at IS NOT NULL",
+                    "SELECT id,trashed_at,purge_after FROM resources WHERE workspace=? "
+                    "AND trashed=1 AND trashed_at IS NOT NULL",
                     (ws["id"],),
                 ).fetchall():
-                    if datetime.fromisoformat(row["trashed_at"]) <= cutoff:
+                    expiry = datetime.fromisoformat(row["trashed_at"]) + days
+                    if row["purge_after"]:
+                        expiry = max(expiry, datetime.fromisoformat(row["purge_after"]))
+                    if expiry <= instant:
                         conn.execute(
-                            "UPDATE resources SET trashed_at=? WHERE id=?",
-                            (instant.isoformat(), row["id"]),
+                            "UPDATE resources SET purge_after=? WHERE id=?",
+                            ((instant + days).isoformat(), row["id"]),
                         )
         suspended.unlink(missing_ok=True)
         return {"finalized": True}

@@ -598,8 +598,12 @@ def test_backup_roundtrip_preserves_identity_and_suspends_purges(tmp_path, monke
             "finalized": True
         }
         assert app.state.cleanup_trash() == 0
-        assert c.get(f"/api/w/{a}/resources/{trashed['id']}").status_code == 200
-        instant[0] += timedelta(days=30)
+        kept = c.get(f"/api/w/{a}/resources/{trashed['id']}").json()
+        assert kept["trashed_at"] == trashed["trashed_at"]  # real deletion time stays visible
+        assert kept["purge_after"] == (instant[0] + timedelta(days=30)).isoformat()
+        instant[0] += timedelta(days=29)
+        assert app.state.cleanup_trash() == 0
+        instant[0] += timedelta(days=1)
         assert app.state.cleanup_trash() == 1
 
 

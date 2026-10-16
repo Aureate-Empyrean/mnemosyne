@@ -36,6 +36,8 @@ CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, method TEXT NOT NULL,
     CREATE INDEX trash_expiry ON resources(workspace,trashed,trashed_at);""",
     # Remembers the last opened Workspace: the sandboxed UI has no browser storage.
     """ALTER TABLE workspaces ADD COLUMN opened_at TEXT;""",
+    # Grace period after a backup restore; trashed_at stays the real deletion time.
+    """ALTER TABLE resources ADD COLUMN purge_after TEXT;""",
 ]
 
 

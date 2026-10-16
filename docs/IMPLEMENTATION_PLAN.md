@@ -81,12 +81,21 @@ Nexus `>=0.1.3,<0.2.0`. Resource IDs were already canonical UUIDs; no data migra
   foreign keys, required tables and schema range. Restore clears the stale outbox and
   re-publishes every edge so later unlinks use current Nexus reference IDs. A
   `purge-suspended` marker in `/data` keeps purges off across restarts until finalize.
+  Finalize defers already-expired Trash with a new `purge_after` column (schema 5);
+  `trashed_at`, the deletion time users see, is never rewritten.
+- Schema 4 remembers the last opened Workspace, so a reload reopens it.
 
-Verified: 25 backend tests (4 new), 10 DOM tests, Ruff. New
+Verified on the final commit: 26 backend tests (5 new), 11 DOM tests, Ruff, Prettier. New
 `scripts/nexus_integration.py` passed against a disposable Nexus 0.1.3 stack: install,
 gateway, reference publish, no-op reconciliation, backup, divergence, confirmed restore
 (validate/reconcile/finalize), identical UUIDs and titles, rebuilt index, post-restore
 unlink, uninstall. Its stack and module volume were removed.
+
+Known limit: Nexus answers 422 when an edge targets a module that is not registered
+(for example a link to a future Meridian person). That outbox entry keeps retrying, so the
+sync indicator never reaches zero; restore re-queues it. Owner reconciliation does index
+such edges, because enumeration accepts absent modules. Needs a decision on how
+Mnemosyne should mark edges Nexus refuses.
 
 Not done here: no live installation exists on this host any more (no Docker volumes),
 so nothing was deployed or migrated. Real-browser QA of the 1.1.0 build is still open.
