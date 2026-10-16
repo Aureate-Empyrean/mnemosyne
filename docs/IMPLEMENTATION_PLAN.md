@@ -24,8 +24,9 @@ Deferred features remain deferred as listed in the canonical architecture.
 - [x] Architecture and existing Nexus inspected; identified missing infrastructure.
 - [x] Backend, migrations and isolation tests (13 passing).
 - [x] Application UI and generic shared infrastructure extensions implemented.
-- [ ] Nexus regression tests, deployment, browser QA and final diff review.
-- [ ] Commits using existing Git identity.
+- [x] Nexus regression tests, deployment, browser QA and final diff review
+  (see Deployment verification, Handoff and `QA_HANDOFF.md`).
+- [x] Commits using existing Git identity.
 
 Staging note: temporary storage was cleared between sessions. Nexus extension has
 been reconstructed in ignored `.work/nexus` and is being reverified before apply.
@@ -65,3 +66,27 @@ See `docs/QA_HANDOFF.md` for exact coverage and remaining product/visual finding
 The active Workspace reload behavior, loading states, cramped mobile header and
 project-board prominence are explicitly recorded for tomorrow rather than hidden
 behind a broad "complete" claim.
+
+## Nexus 0.1.3 contract — Mnemosyne 1.1.0, 2026-10-16
+
+Manifest moves to Entity References v2 with enumeration and backup v1, and requires
+Nexus `>=0.1.3,<0.2.0`. Resource IDs were already canonical UUIDs; no data migration.
+
+- Outgoing-reference enumeration, cursor-paged by link ID, resolver-authenticated.
+- Permanent deletion now queues removal of the source's published Nexus edges (they were
+  previously orphaned in the index). A reference Nexus no longer has (404 on DELETE)
+  completes instead of retrying forever.
+- Backup v1 export/validate/restore/finalize. Artifacts stream through the data volume,
+  not the 16 MiB `/tmp`. Validation checks identity headers, format, SQLite integrity,
+  foreign keys, required tables and schema range. Restore clears the stale outbox and
+  re-publishes every edge so later unlinks use current Nexus reference IDs. A
+  `purge-suspended` marker in `/data` keeps purges off across restarts until finalize.
+
+Verified: 25 backend tests (4 new), 10 DOM tests, Ruff. New
+`scripts/nexus_integration.py` passed against a disposable Nexus 0.1.3 stack: install,
+gateway, reference publish, no-op reconciliation, backup, divergence, confirmed restore
+(validate/reconcile/finalize), identical UUIDs and titles, rebuilt index, post-restore
+unlink, uninstall. Its stack and module volume were removed.
+
+Not done here: no live installation exists on this host any more (no Docker volumes),
+so nothing was deployed or migrated. Real-browser QA of the 1.1.0 build is still open.
