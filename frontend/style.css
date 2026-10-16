@@ -14,20 +14,9 @@
   font-display: block;
 }
 
+/* Shared tokens come from aureate-tokens.css (canonical: architecture/design/tokens.css,
+   ADR 0008). Mnemosyne overrides only its violet accent family and display face. */
 :root {
-  color-scheme: dark;
-
-  /* Shared Aureate neutrals */
-  --void: #090a0c;
-  --obsidian: #101216;
-  --graphite: #191c22;
-  --elevated: #222630;
-  --text: #f2f0ea;
-  --text-2: #a7a9af;
-  --text-3: #70747d;
-  /* Metadata: between Secondary and Muted, readable at 11-13 px (AA). */
-  --text-meta: color-mix(in srgb, var(--text-2) 45%, var(--text-3));
-
   /* Mnemosyne accent family */
   --accent: #8b7cf6;
   --accent-hi: #b7aeff;
@@ -37,48 +26,17 @@
   --accent-sel: rgba(139, 124, 246, 0.22);
   --accent-line: rgba(139, 124, 246, 0.5);
   --focus: #b7aeff;
-
-  /* Surfaces and lines */
-  --surface-1: #0d0f13;
-  --surface-2: #14161b;
-  --hover: rgba(255, 255, 255, 0.045);
-  --press: rgba(255, 255, 255, 0.07);
-  --line: rgba(255, 255, 255, 0.075);
-  --line-2: rgba(255, 255, 255, 0.12);
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
-
-  /* Semantic */
-  --danger: #f29494;
-  --danger-strong: #bf4750;
-  --danger-soft: rgba(242, 148, 148, 0.12);
-  --warn: #e7ae6c;
-  --prio-urgent: #f29494;
-  --prio-high: #e9a66d;
-  --prio-medium: #b7aeff;
-  --prio-low: #a7a9af;
-
-  /* Type */
-  --font-ui:
-    Roboto, "Roboto Flex", "Noto Sans", "Segoe UI", "Helvetica Neue", system-ui,
-    sans-serif;
   --font-display: "Mnemosyne Display", var(--font-ui);
-  --font-mono:
-    "Roboto Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
-    monospace;
 
-  /* Motion */
-  --fast: 120ms;
-  --base: 180ms;
-  --slow: 230ms;
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* Task priority */
+  --prio-urgent: var(--danger);
+  --prio-high: #e9a66d;
+  --prio-medium: var(--accent-hi);
+  --prio-low: var(--text-2);
 
   /* Layout */
   --sidebar: 236px;
   --drawer: 420px;
-  --radius: 10px;
-  --radius-sm: 7px;
 
   font:
     400 14px/1.5 var(--font-ui),
@@ -245,7 +203,7 @@ kbd {
 .splash .poster {
   font-size: clamp(36px, 6vw, 64px);
   opacity: 0.92;
-  animation: rise var(--slow) var(--ease-out) both;
+  animation: rise var(--motion-slow) var(--ease-out) both;
 }
 .splash-mark .brand-mark,
 .welcome-mark .brand-mark {
@@ -325,8 +283,8 @@ kbd {
   background: var(--graphite);
   border: 1px solid var(--line);
   transition:
-    background var(--fast),
-    border-color var(--fast);
+    background var(--motion-fast),
+    border-color var(--motion-fast);
   margin-bottom: 18px;
 }
 .ws-switch:hover,
@@ -380,9 +338,9 @@ kbd {
   background: var(--accent-sel);
   box-shadow: inset 2px 0 0 var(--accent);
   transition:
-    transform var(--base) var(--ease-out),
-    height var(--base) var(--ease-out),
-    opacity var(--base);
+    transform var(--motion-base) var(--ease-out),
+    height var(--motion-base) var(--ease-out),
+    opacity var(--motion-base);
   pointer-events: none;
 }
 .nav-item {
@@ -396,14 +354,14 @@ kbd {
   color: var(--text-2);
   font-weight: 500;
   transition:
-    color var(--fast),
-    background var(--fast);
+    color var(--motion-fast),
+    background var(--motion-fast);
 }
 .nav-item .i {
   width: 18px;
   height: 18px;
   color: var(--text-meta);
-  transition: color var(--fast);
+  transition: color var(--motion-fast);
 }
 .nav-item:hover {
   color: var(--text);
@@ -467,7 +425,7 @@ kbd {
   color: var(--warn);
   font-size: 12px;
   line-height: 1.35;
-  animation: rise var(--base) var(--ease-out) both;
+  animation: rise var(--motion-base) var(--ease-out) both;
 }
 
 .main {
@@ -476,7 +434,7 @@ kbd {
   flex-direction: column;
   min-width: 0;
   height: 100vh;
-  transition: padding-right var(--slow) var(--ease-out);
+  transition: padding-right var(--motion-slow) var(--ease-out);
 }
 .topbar {
   height: 58px;
@@ -500,8 +458,8 @@ kbd {
   border-radius: 6px;
   white-space: nowrap;
   transition:
-    color var(--fast),
-    background var(--fast);
+    color var(--motion-fast),
+    background var(--motion-fast);
 }
 .crumb:hover {
   color: var(--text);
@@ -533,9 +491,9 @@ kbd {
   border: 1px solid var(--line);
   color: var(--text-meta);
   transition:
-    border-color var(--fast),
-    background var(--fast),
-    width var(--base) var(--ease-out);
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    width var(--motion-base) var(--ease-out);
 }
 .search:focus-within {
   border-color: var(--accent-line);
@@ -598,10 +556,10 @@ input[type="search"]::-webkit-search-cancel-button {
   font-weight: 500;
   white-space: nowrap;
   transition:
-    background var(--fast),
-    border-color var(--fast),
+    background var(--motion-fast),
+    border-color var(--motion-fast),
     transform 80ms var(--ease-out),
-    color var(--fast);
+    color var(--motion-fast);
 }
 .btn:hover {
   background: var(--elevated);
@@ -665,8 +623,8 @@ input[type="search"]::-webkit-search-cancel-button {
   padding: 2px 4px;
   border-radius: 5px;
   transition:
-    color var(--fast),
-    background var(--fast);
+    color var(--motion-fast),
+    background var(--motion-fast);
 }
 .link:hover {
   color: #d3ccff;
@@ -675,7 +633,7 @@ input[type="search"]::-webkit-search-cancel-button {
 .link .i {
   width: 14px;
   height: 14px;
-  transition: transform var(--fast) var(--ease-out);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .link:hover .i {
   transform: translateX(2px);
@@ -688,8 +646,8 @@ input[type="search"]::-webkit-search-cancel-button {
   border-radius: 8px;
   color: var(--text-2);
   transition:
-    background var(--fast),
-    color var(--fast),
+    background var(--motion-fast),
+    color var(--motion-fast),
     transform 80ms var(--ease-out);
 }
 .icon-btn:hover:not(:disabled),
@@ -740,8 +698,8 @@ input[type="search"]::-webkit-search-cancel-button {
   font-weight: 500;
   font-size: 13px;
   transition:
-    background var(--base) var(--ease-out),
-    color var(--fast);
+    background var(--motion-base) var(--ease-out),
+    color var(--motion-fast);
 }
 .seg-btn .i {
   width: 15px;
@@ -777,7 +735,7 @@ input[type="search"]::-webkit-search-cancel-button {
   padding: 10px 10px 11px;
   color: var(--text-2);
   font-weight: 500;
-  transition: color var(--fast);
+  transition: color var(--motion-fast);
 }
 .tab:hover {
   color: var(--text);
@@ -806,8 +764,8 @@ input[type="search"]::-webkit-search-cancel-button {
   border-radius: 2px;
   background: var(--accent);
   transition:
-    transform var(--base) var(--ease-out),
-    width var(--base) var(--ease-out);
+    transform var(--motion-base) var(--ease-out),
+    width var(--motion-base) var(--ease-out);
 }
 .tab-ink.instant {
   transition: none;
@@ -832,8 +790,8 @@ input[type="search"]::-webkit-search-cancel-button {
   border: 1px solid var(--line-2);
   background: var(--surface-2);
   transition:
-    border-color var(--fast),
-    background var(--fast);
+    border-color var(--motion-fast),
+    background var(--motion-fast);
 }
 .field input:focus,
 .ws-field input:focus {
@@ -1050,8 +1008,8 @@ textarea::placeholder {
   border-radius: 9px;
   cursor: default;
   transition:
-    background var(--fast),
-    box-shadow var(--fast);
+    background var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 .task-row:hover {
   background: var(--hover);
@@ -1076,7 +1034,7 @@ textarea::placeholder {
   right: 10px;
   top: 0;
   border-top: 1px solid var(--line);
-  transition: opacity var(--fast);
+  transition: opacity var(--motion-fast);
 }
 .task-row:hover::before,
 .task-row:hover + .task-row::before,
@@ -1096,7 +1054,7 @@ textarea::placeholder {
   position: relative;
   min-width: 0;
   overflow-wrap: anywhere;
-  transition: color var(--base);
+  transition: color var(--motion-base);
 }
 .task-title::after {
   content: "";
@@ -1108,7 +1066,7 @@ textarea::placeholder {
   background: currentColor;
   transform: scaleX(0);
   transform-origin: left;
-  transition: transform var(--base) var(--ease-out);
+  transition: transform var(--motion-base) var(--ease-out);
   opacity: 0.7;
 }
 .is-done .task-title,
@@ -1136,9 +1094,9 @@ textarea::placeholder {
   color: var(--text-meta);
   opacity: 0;
   transition:
-    opacity var(--fast),
-    background var(--fast),
-    color var(--fast);
+    opacity var(--motion-fast),
+    background var(--motion-fast),
+    color var(--motion-fast);
 }
 .task-row:hover .row-more,
 .task-row:focus-within .row-more,
@@ -1162,7 +1120,7 @@ textarea::placeholder {
   background: var(--accent-hover);
   font-size: 12.5px;
   font-weight: 600;
-  animation: rise var(--base) var(--ease-out) both;
+  animation: rise var(--motion-base) var(--ease-out) both;
 }
 .undo-inline:hover {
   background: var(--accent-soft);
@@ -1193,7 +1151,7 @@ textarea::placeholder {
   flex: none;
   border-radius: 50%;
   color: var(--text-meta);
-  transition: color var(--fast);
+  transition: color var(--motion-fast);
 }
 .check:hover:not(:disabled) {
   color: var(--accent-hi);
@@ -1211,8 +1169,8 @@ textarea::placeholder {
   stroke: currentColor;
   stroke-width: 1.6;
   transition:
-    fill var(--base) var(--ease-out),
-    stroke var(--base);
+    fill var(--motion-base) var(--ease-out),
+    stroke var(--motion-base);
 }
 .check-mark {
   fill: none;
@@ -1222,7 +1180,7 @@ textarea::placeholder {
   stroke-linejoin: round;
   stroke-dasharray: 14;
   stroke-dashoffset: 14;
-  transition: stroke-dashoffset var(--base) var(--ease-out) 60ms;
+  transition: stroke-dashoffset var(--motion-base) var(--ease-out) 60ms;
 }
 .check:hover:not(:disabled) .check-mark {
   stroke: var(--accent-hi);
@@ -1268,9 +1226,9 @@ textarea::placeholder {
   background: var(--surface-2);
   border: 1px solid transparent;
   transition:
-    border-color var(--fast),
-    background var(--fast),
-    box-shadow var(--base);
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-base);
 }
 .quick-add:focus-within,
 .capture:focus-within {
@@ -1313,9 +1271,9 @@ textarea::placeholder {
   font-size: 12.5px;
   font-weight: 500;
   transition:
-    background var(--fast),
-    color var(--fast),
-    opacity var(--fast);
+    background var(--motion-fast),
+    color var(--motion-fast),
+    opacity var(--motion-fast);
 }
 .quick-add:not(:focus-within) .qa-chip:not(.set),
 .capture:not(:focus-within) .qa-chip:not(.set) {
@@ -1341,7 +1299,7 @@ textarea::placeholder {
 }
 .qa-enter {
   opacity: 0;
-  transition: opacity var(--fast);
+  transition: opacity var(--motion-fast);
 }
 .quick-add:focus-within .qa-enter,
 .capture:focus-within .qa-enter {
@@ -1401,9 +1359,9 @@ textarea::placeholder {
     var(--obsidian);
   border: 1px solid rgba(139, 124, 246, 0.18);
   transition:
-    border-color var(--base),
-    transform var(--base) var(--ease-out),
-    box-shadow var(--base);
+    border-color var(--motion-base),
+    transform var(--motion-base) var(--ease-out),
+    box-shadow var(--motion-base);
 }
 .daily-card:hover {
   border-color: rgba(139, 124, 246, 0.36);
@@ -1443,7 +1401,7 @@ textarea::placeholder {
 .daily-card-cta .i {
   width: 14px;
   height: 14px;
-  transition: transform var(--fast) var(--ease-out);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .daily-card:hover .daily-card-cta .i {
   transform: translateX(3px);
@@ -1457,7 +1415,7 @@ textarea::placeholder {
   gap: 10px;
   padding: 8px 8px;
   border-radius: 8px;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .compact-row:hover {
   background: var(--hover);
@@ -1534,7 +1492,7 @@ textarea::placeholder {
   background: var(--surface-2);
   border: 1px solid var(--line);
   color: var(--text-meta);
-  transition: border-color var(--fast);
+  transition: border-color var(--motion-fast);
 }
 .pane-filter:focus-within {
   border-color: var(--accent-line);
@@ -1573,8 +1531,8 @@ textarea::placeholder {
   border-radius: 9px;
   cursor: default;
   transition:
-    background var(--fast),
-    box-shadow var(--fast);
+    background var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 .note-row:hover {
   background: var(--hover);
@@ -1644,8 +1602,8 @@ textarea::placeholder {
   background: var(--graphite);
   opacity: 0;
   transition:
-    opacity var(--fast),
-    color var(--fast);
+    opacity var(--motion-fast),
+    color var(--motion-fast);
 }
 .note-row:hover .row-remove,
 .note-row:focus-within .row-remove {
@@ -1693,8 +1651,8 @@ textarea::placeholder {
   border-radius: 7px;
   font-weight: 500;
   transition:
-    background var(--fast),
-    color var(--fast);
+    background var(--motion-fast),
+    color var(--motion-fast);
 }
 .back-link:hover {
   background: var(--hover);
@@ -1738,7 +1696,7 @@ textarea::placeholder {
   background: var(--danger-soft);
   padding: 3px 4px 3px 8px;
   border-radius: 7px;
-  animation: rise var(--base) var(--ease-out) both;
+  animation: rise var(--motion-base) var(--ease-out) both;
 }
 .save-status .link {
   font-size: 12px;
@@ -1801,7 +1759,7 @@ textarea::placeholder {
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: color var(--fast);
+  transition: color var(--motion-fast);
 }
 .chip-main:hover:not(:disabled) {
   color: var(--text);
@@ -1815,8 +1773,8 @@ textarea::placeholder {
   color: var(--text-meta);
   border-radius: 0 6px 6px 0;
   transition:
-    color var(--fast),
-    background var(--fast);
+    color var(--motion-fast),
+    background var(--motion-fast);
 }
 .chip-x .i {
   width: 11px;
@@ -1833,8 +1791,8 @@ textarea::placeholder {
   color: var(--text-meta);
   font-size: 12px;
   transition:
-    color var(--fast),
-    border-color var(--fast);
+    color var(--motion-fast),
+    border-color var(--motion-fast);
 }
 .meta-add:hover {
   color: var(--accent-hi);
@@ -1853,7 +1811,7 @@ textarea::placeholder {
   background: rgba(9, 10, 12, 0.88);
   backdrop-filter: blur(6px);
   opacity: 0.4;
-  transition: opacity var(--base);
+  transition: opacity var(--motion-base);
 }
 .writing:focus-within .format-bar,
 .format-bar:hover {
@@ -1870,8 +1828,8 @@ textarea::placeholder {
   font-size: 12.5px;
   font-weight: 600;
   transition:
-    background var(--fast),
-    color var(--fast);
+    background var(--motion-fast),
+    color var(--motion-fast);
 }
 .fmt:hover {
   background: var(--hover);
@@ -2015,17 +1973,17 @@ textarea::placeholder {
   opacity: 0;
   visibility: hidden;
   transition:
-    transform var(--slow) var(--ease-out),
-    opacity var(--base) var(--ease-out),
-    visibility 0s linear var(--slow);
+    transform var(--motion-slow) var(--ease-out),
+    opacity var(--motion-base) var(--ease-out),
+    visibility 0s linear var(--motion-slow);
 }
 .drawer.open {
   transform: none;
   opacity: 1;
   visibility: visible;
   transition:
-    transform var(--slow) var(--ease-out),
-    opacity var(--base) var(--ease-out),
+    transform var(--motion-slow) var(--ease-out),
+    opacity var(--motion-base) var(--ease-out),
     visibility 0s;
 }
 @media (min-width: 1280px) {
@@ -2073,7 +2031,7 @@ textarea::placeholder {
   font-weight: 500;
   line-height: 1.35;
   padding-top: 4px;
-  transition: color var(--base);
+  transition: color var(--motion-base);
 }
 .inspector.is-done .drawer-title {
   color: var(--text-meta);
@@ -2109,9 +2067,9 @@ textarea::placeholder {
   font-weight: 500;
   max-width: 100%;
   transition:
-    background var(--fast),
-    border-color var(--fast),
-    color var(--fast);
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    color var(--motion-fast);
 }
 .prop span {
   overflow: hidden;
@@ -2174,7 +2132,7 @@ textarea::placeholder {
   width: calc(100% - 28px);
   line-height: 1.6;
   color: var(--text);
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .desc:hover,
 .desc:focus {
@@ -2202,8 +2160,8 @@ textarea::placeholder {
   background: none;
   padding: 0 6px;
   transition:
-    background var(--fast),
-    color var(--base);
+    background var(--motion-fast),
+    color var(--motion-base);
 }
 .step-text:hover,
 .step-text:focus {
@@ -2260,15 +2218,15 @@ details.more > summary {
   font-weight: 500;
   font-size: 13px;
   transition:
-    color var(--fast),
-    background var(--fast);
+    color var(--motion-fast),
+    background var(--motion-fast);
 }
 details.more > summary:hover {
   color: var(--text);
   background: var(--hover);
 }
 .disclosure {
-  transition: transform var(--fast) var(--ease-out);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 details[open] > summary .disclosure {
   transform: rotate(90deg);
@@ -2298,7 +2256,7 @@ details[open] > summary .disclosure {
   padding: 7px 6px;
   border-radius: 8px;
   color: var(--text-2);
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .d-row:hover {
   background: var(--hover);
@@ -2428,7 +2386,7 @@ details[open] > summary .disclosure {
   border-radius: 50%;
   background: var(--swatch);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  transition: transform var(--fast) var(--ease-spring);
+  transition: transform var(--motion-fast) var(--ease-spring);
   cursor: pointer;
 }
 .swatch:hover:not(:disabled) {
@@ -2490,7 +2448,7 @@ details[open] > summary .disclosure {
   height: 18px;
   border-radius: 10px;
   background: var(--elevated);
-  transition: background var(--base);
+  transition: background var(--motion-base);
 }
 .switch-track::after {
   content: "";
@@ -2502,8 +2460,8 @@ details[open] > summary .disclosure {
   border-radius: 50%;
   background: var(--text-2);
   transition:
-    transform var(--base) var(--ease-spring),
-    background var(--base);
+    transform var(--motion-base) var(--ease-spring),
+    background var(--motion-base);
 }
 .switch input:checked + .switch-track {
   background: var(--accent);
@@ -2538,7 +2496,7 @@ details[open] > summary .disclosure {
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow);
   transform-origin: top left;
-  animation: pop var(--fast) var(--ease-out) both;
+  animation: pop var(--motion-fast) var(--ease-out) both;
 }
 .popover.above {
   transform-origin: bottom left;
@@ -2722,7 +2680,7 @@ dialog {
 dialog::backdrop {
   background: rgba(5, 6, 8, 0.62);
   backdrop-filter: blur(2px);
-  animation: fade var(--base) var(--ease-out) both;
+  animation: fade var(--motion-base) var(--ease-out) both;
 }
 dialog.closing::backdrop {
   animation: fade-out 130ms var(--ease-in) both;
@@ -2734,7 +2692,7 @@ dialog.closing::backdrop {
   background: var(--elevated);
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow);
-  animation: dialog-in var(--base) var(--ease-out) both;
+  animation: dialog-in var(--motion-base) var(--ease-out) both;
 }
 dialog.wide .dialog-card {
   width: 560px;
@@ -2805,7 +2763,7 @@ dialog.closing .dialog-card {
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .pick:hover {
   background: var(--hover);
@@ -2826,9 +2784,9 @@ dialog.closing .dialog-card {
   border: 1.5px solid var(--text-3);
   color: transparent;
   transition:
-    background var(--fast),
-    border-color var(--fast),
-    color var(--fast);
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    color var(--motion-fast);
 }
 .box .i {
   width: 12px;
@@ -2892,8 +2850,8 @@ input:focus-visible + .box {
   opacity: 0;
   transform: translateY(10px) scale(0.98);
   transition:
-    opacity var(--base) var(--ease-out),
-    transform var(--base) var(--ease-out);
+    opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out);
 }
 .toast.show {
   opacity: 1;
@@ -2922,7 +2880,7 @@ input:focus-visible + .box {
   border-radius: 7px;
   color: var(--accent-hi);
   font-weight: 600;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .toast-action:hover {
   background: var(--accent-soft);
@@ -2954,7 +2912,7 @@ input:focus-visible + .box {
   width: 100%;
   padding: 12px 12px;
   border-radius: 11px;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .project-row:hover {
   background: var(--hover);
@@ -3020,7 +2978,7 @@ input:focus-visible + .box {
   height: 100%;
   border-radius: 3px;
   background: linear-gradient(90deg, var(--accent-deep), var(--accent));
-  transition: width var(--slow) var(--ease-out);
+  transition: width var(--motion-slow) var(--ease-out);
 }
 .project-row-count {
   font-size: 12px;
@@ -3077,7 +3035,7 @@ input:focus-visible + .box {
   border: 1px solid var(--line);
   font-size: 12.5px;
   font-weight: 600;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .status-pill:hover:not(:disabled) {
   background: var(--elevated);
@@ -3127,8 +3085,8 @@ input:focus-visible + .box {
   line-height: 1.6;
   max-height: 5em;
   transition:
-    background var(--fast),
-    max-height var(--slow) var(--ease-out);
+    background var(--motion-fast),
+    max-height var(--motion-slow) var(--ease-out);
 }
 .project-desc:hover,
 .collection-desc:hover {
@@ -3170,8 +3128,8 @@ input:focus-visible + .box {
   background: var(--surface-1);
   border: 1px solid transparent;
   transition:
-    border-color var(--fast),
-    background var(--fast);
+    border-color var(--motion-fast),
+    background var(--motion-fast);
 }
 .column.drop-target {
   border-color: var(--accent-line);
@@ -3201,10 +3159,10 @@ input:focus-visible + .box {
   border: 1px solid var(--line);
   cursor: grab;
   transition:
-    border-color var(--fast),
-    box-shadow var(--base),
-    transform var(--base) var(--ease-out),
-    opacity var(--base);
+    border-color var(--motion-fast),
+    box-shadow var(--motion-base),
+    transform var(--motion-base) var(--ease-out),
+    opacity var(--motion-base);
 }
 .card:hover {
   border-color: var(--line-2);
@@ -3278,8 +3236,8 @@ input:focus-visible + .box {
   font-size: 13px;
   font-weight: 500;
   transition:
-    background var(--fast),
-    color var(--fast);
+    background var(--motion-fast),
+    color var(--motion-fast);
 }
 .column-add-btn:hover {
   background: var(--hover);
@@ -3294,7 +3252,7 @@ input:focus-visible + .box {
   background: var(--graphite);
   border: 1px solid var(--accent-line);
   color: var(--accent-hi);
-  animation: rise var(--fast) var(--ease-out) both;
+  animation: rise var(--motion-fast) var(--ease-out) both;
 }
 .column-input input {
   flex: 1;
@@ -3323,7 +3281,7 @@ input:focus-visible + .box {
   gap: 2px;
   padding-left: calc(var(--depth) * 16px);
   border-radius: 8px;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .tree-row:hover {
   background: var(--hover);
@@ -3344,7 +3302,7 @@ input:focus-visible + .box {
 .tree-toggle .i {
   width: 13px;
   height: 13px;
-  transition: transform var(--fast) var(--ease-out);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .tree-toggle .i.open {
   transform: rotate(90deg);
@@ -3431,8 +3389,8 @@ input:focus-visible + .box {
   border: 1px solid var(--line);
   color: var(--text);
   transition:
-    background var(--fast),
-    border-color var(--fast);
+    background var(--motion-fast),
+    border-color var(--motion-fast);
 }
 .sub-collection .i {
   color: var(--accent-hi);
@@ -3466,7 +3424,7 @@ input:focus-visible + .box {
   width: 100%;
   padding: 10px 10px;
   border-radius: 9px;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .result:hover,
 .result:focus-visible {
@@ -3532,8 +3490,8 @@ mark {
   opacity: 0;
   transform: translateY(-6px);
   transition:
-    opacity var(--base) var(--ease-out),
-    transform var(--base) var(--ease-out);
+    opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out);
 }
 .selection-bar.show {
   opacity: 1;
@@ -3561,7 +3519,7 @@ mark {
   gap: 12px;
   padding: 9px 10px;
   border-radius: 10px;
-  transition: background var(--fast);
+  transition: background var(--motion-fast);
 }
 .trash-row:hover {
   background: var(--hover);
@@ -3572,7 +3530,7 @@ mark {
 }
 .trash-row .select-box {
   opacity: 0;
-  transition: opacity var(--fast);
+  transition: opacity var(--motion-fast);
 }
 .trash-row:hover .select-box,
 .trash-row:focus-within .select-box,
@@ -3604,7 +3562,7 @@ mark {
   align-items: center;
   gap: 4px;
   opacity: 0.7;
-  transition: opacity var(--fast);
+  transition: opacity var(--motion-fast);
 }
 .trash-row:hover .trash-actions,
 .trash-row:focus-within .trash-actions {

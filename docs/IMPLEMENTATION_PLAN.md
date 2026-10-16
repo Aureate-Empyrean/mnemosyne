@@ -99,3 +99,12 @@ Mnemosyne should mark edges Nexus refuses.
 
 Not done here: no live installation exists on this host any more (no Docker volumes),
 so nothing was deployed or migrated. Real-browser QA of the 1.1.0 build is still open.
+
+## Shared design tokens — 2026-10-16
+
+Architecture ADR 0008. `frontend/aureate-tokens.css` is the canonical token file, vendored
+unchanged; `style.css` keeps only the violet accent family, display face, priority
+colors and layout sizes, and uses the shared motion names. Roboto (OFL, `frontend/fonts`)
+is embedded as a data URI so the sandboxed app renders the same face as Nexus; this needs
+Nexus 0.1.4 (`font-src data:`). On 0.1.3 the system font fallback is used.
+Danger/warning colors and the shadow now follow the shared values.

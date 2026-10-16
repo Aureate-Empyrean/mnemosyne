@@ -645,3 +645,16 @@ def test_last_opened_workspace_is_remembered(env):
     assert c.post("/api/workspaces/missing/open").status_code == 404
     opened = {w["id"]: w["opened_at"] for w in c.get("/api/workspaces").json()}
     assert opened[b] and opened[a] is None
+
+
+def test_page_uses_shared_tokens_and_embedded_font(env):
+    import re
+
+    c, *_ = env
+    page = c.get("/").text
+    assert len(page.encode()) < 2 * 1024 * 1024  # Nexus gateway response cap
+    tokens = page.index("Aureate Empyrean shared design tokens")
+    assert tokens < page.index("font/woff2;base64,") < page.index("Mnemosyne accent family")
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", page))
+    used = set(re.findall(r"var\((--[a-z0-9-]+)", page))
+    assert used <= defined, used - defined
