@@ -3,6 +3,7 @@ import json
 import os
 import re
 import secrets
+import sqlite3
 import threading
 import time
 import uuid
@@ -14,11 +15,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import bleach
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from markdown_it import MarkdownIt
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
-from mnemosyne.db import Database
+from mnemosyne.db import MIGRATIONS, Database
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = re.compile(
@@ -26,6 +29,12 @@ REF = re.compile(
 )
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((nexus:v1:[^)\s]+)\)")
 KINDS = {"note", "task", "project", "collection"}
+VERSION = "1.1.0"
+# Backup artifact: a consistent SQLite snapshot. Older schemas migrate forward on restore.
+BACKUP_FORMAT = "mnemosyne-sqlite"
+BACKUP_FORMAT_VERSION = 1
+BACKUP_HEADER = "X-Empyrean-Backup-"
+MAX_ARTIFACT = 256 * 1024 * 1024
 
 
 def now():
@@ -113,6 +122,15 @@ def create_app(data_dir=None, nexus=None, clock=None):
     stop = threading.Event()
     sync_lock = threading.Lock()
 
+    suspended = db.path.parent / "purge-suspended"
+
+    def retry(entry):
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE outbox SET attempts=attempts+1,next_attempt=? WHERE id=?",
+                (time.time() + min(300, 2 ** min(entry["attempts"] + 1, 8)), entry["id"]),
+            )
+
     def flush(force=False):
         if not sync_lock.acquire(blocking=False):
             return
@@ -129,15 +147,14 @@ def create_app(data_dir=None, nexus=None, clock=None):
                         entry["path"],
                         json.loads(entry["body"]) if entry["body"] else None,
                     )
+                except httpx.HTTPStatusError as exc:
+                    if entry["method"] == "DELETE" and exc.response.status_code == 404:
+                        result = {}
+                    else:
+                        retry(entry)
+                        continue
                 except (httpx.HTTPError, KeyError, OSError):
-                    with db.connect() as conn:
-                        conn.execute(
-                            "UPDATE outbox SET attempts=attempts+1,next_attempt=? WHERE id=?",
-                            (
-                                time.time() + min(300, 2 ** min(entry["attempts"] + 1, 8)),
-                                entry["id"],
-                            ),
-                        )
+                    retry(entry)
                     continue
                 with db.connect() as conn:
                     if entry["link_id"] and result.get("reference"):
@@ -384,7 +401,7 @@ def create_app(data_dir=None, nexus=None, clock=None):
     def health():
         with db.connect() as conn:
             conn.execute("SELECT 1")
-        return {"status": "ok", "version": "1.0.0"}
+        return {"status": "ok", "version": VERSION}
 
     @app.get("/api/workspaces")
     def workspaces():
@@ -513,11 +530,18 @@ def create_app(data_dir=None, nexus=None, clock=None):
         conn.execute(
             "DELETE FROM outbox WHERE link_id IN (SELECT id FROM links WHERE source=?)", (rid,)
         )
+        # The source is gone, so its edges leave the Nexus index too.
+        for link in conn.execute(
+            "SELECT remote_id FROM links WHERE source=? AND remote_id IS NOT NULL", (rid,)
+        ).fetchall():
+            queue(conn, "DELETE", "/references/" + link["remote_id"])
         conn.execute("INSERT INTO tombstones VALUES(?,?,?)", (rid, row["kind"], wid))
         conn.execute("DELETE FROM resources WHERE id=? AND workspace=?", (rid, wid))
         activity(conn, rid, "deleted")
 
     def cleanup_trash():
+        if suspended.exists():
+            return 0  # A restore is awaiting finalize; restored timestamps must not purge.
         deleted = 0
         instant = clock()
         with db.connect() as conn:
@@ -675,13 +699,16 @@ def create_app(data_dir=None, nexus=None, clock=None):
         except httpx.HTTPError:
             return {"resource": body.target, "availability": "unavailable_or_not_granted"}
 
-    @app.post("/empyrean/v1/resources/resolve")
-    def protocol_resolve(body: dict, request: Request):
+    def require_resolver(request):
         key = os.getenv("NEXUS_RESOLVER_KEY", "")
         if not key or not secrets.compare_digest(
             request.headers.get("x-nexus-resolver-key", ""), key
         ):
             raise HTTPException(403, "Resolver authentication required")
+
+    @app.post("/empyrean/v1/resources/resolve")
+    def protocol_resolve(body: dict, request: Request):
+        require_resolver(request)
         match = REF.fullmatch(body.get("resource", ""))
         if not match or match[1] != "mnemosyne":
             raise HTTPException(404, "Not found")
@@ -709,6 +736,189 @@ def create_app(data_dir=None, nexus=None, clock=None):
                 "label": row["title"],
                 "open_path": f"/w/{row['workspace']}/r/{row['id']}",
             }
+
+    @app.get("/empyrean/v1/references/outgoing")
+    def outgoing(request: Request, limit: int = 200, cursor: str = ""):
+        """Complete authoritative set of edges this module publishes to the Nexus index."""
+        require_resolver(request)
+        limit = max(1, min(limit, 200))
+        with db.connect() as conn:
+            rows = conn.execute(
+                "SELECT l.id,l.target,l.readers,r.id AS rid,r.kind FROM links l "
+                "JOIN resources r ON r.id=l.source WHERE l.id>? ORDER BY l.id LIMIT ?",
+                (cursor, limit + 1),
+            ).fetchall()
+        page = rows[:limit]
+        return {
+            "references": [
+                {
+                    "source": identity({"kind": r["kind"], "id": r["rid"]}),
+                    "target": r["target"],
+                    "relation": "mnemosyne.related",
+                    "metadata": {},
+                    "readers": json.loads(r["readers"]),
+                }
+                for r in page
+            ],
+            "next_cursor": page[-1]["id"] if len(rows) > limit else None,
+        }
+
+    async def receive_artifact(request):
+        """Stream an artifact into the data volume; /tmp is too small for real backups."""
+        path = db.path.parent / f"restore-{uid()}.part"
+        size = 0
+        try:
+            with open(path, "wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > MAX_ARTIFACT:
+                        raise HTTPException(413, "Backup artifact exceeds 256 MiB")
+                    out.write(chunk)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return path
+
+    def check_artifact(request, path):
+        """Raises unless the artifact is a Mnemosyne snapshot this version can migrate."""
+        headers = {
+            k[len(BACKUP_HEADER) :].lower(): v
+            for k, v in request.headers.items()
+            if k.lower().startswith(BACKUP_HEADER.lower())
+        }
+        if headers.get("module") != "mnemosyne" or headers.get("format") != BACKUP_FORMAT:
+            raise ValueError("Not a Mnemosyne backup")
+        if headers.get("format-version") != str(BACKUP_FORMAT_VERSION):
+            raise ValueError("Unsupported backup format version")
+        try:
+            snapshot = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        except sqlite3.Error as exc:
+            raise ValueError("Backup is not a readable database") from exc
+        try:
+            if snapshot.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("Backup database is damaged")
+            if snapshot.execute("PRAGMA foreign_key_check").fetchone():
+                raise ValueError("Backup database has broken relationships")
+            schema = snapshot.execute("PRAGMA user_version").fetchone()[0]
+            if not 1 <= schema <= len(MIGRATIONS):
+                raise ValueError("Backup schema is not supported by this version")
+            tables = {
+                r[0] for r in snapshot.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            if not {"workspaces", "resources", "links", "attachments"} <= tables:
+                raise ValueError("Backup is missing Mnemosyne data")
+        except sqlite3.Error as exc:
+            raise ValueError("Backup is not a readable database") from exc
+        finally:
+            snapshot.close()
+
+    @app.post("/empyrean/v1/backup/export")
+    def backup_export(request: Request):
+        require_resolver(request)
+        path = db.path.parent / f"export-{uid()}.part"
+        try:
+            target = sqlite3.connect(path)
+            with db.connect() as conn:
+                conn.backup(target)  # consistent snapshot, safe while the app is running
+            target.execute("PRAGMA journal_mode=DELETE")  # one self-contained file
+            target.close()
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return FileResponse(
+            path,
+            media_type="application/octet-stream",
+            background=BackgroundTask(path.unlink, missing_ok=True),
+            headers={
+                BACKUP_HEADER + "Module": "mnemosyne",
+                BACKUP_HEADER + "Module-Version": VERSION,
+                BACKUP_HEADER + "Format": BACKUP_FORMAT,
+                BACKUP_HEADER + "Format-Version": str(BACKUP_FORMAT_VERSION),
+                BACKUP_HEADER + "Created-At": clock().isoformat(),
+                BACKUP_HEADER + "Restorable-By": f">={VERSION},<2",
+            },
+        )
+
+    @app.post("/empyrean/v1/backup/validate")
+    async def backup_validate(request: Request):
+        require_resolver(request)
+        path = await receive_artifact(request)
+        try:
+            await run_in_threadpool(check_artifact, request, path)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        finally:
+            path.unlink(missing_ok=True)
+        return {"valid": True}
+
+    def replace_data(path):
+        # Suspend purges first and durably: a crash before finalize must not purge restored Trash.
+        suspended.write_text(clock().isoformat())
+        with sync_lock:
+            snapshot = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            try:
+                with db.connect() as conn:
+                    snapshot.backup(conn)
+            finally:
+                snapshot.close()
+            db.migrate()
+            with db.connect() as conn:
+                # Pending calls describe the pre-restore state. Re-publish every edge instead;
+                # Nexus upserts them and returns current reference IDs for later unlinking.
+                conn.execute("DELETE FROM outbox")
+                for link in conn.execute(
+                    "SELECT l.*,r.kind FROM links l JOIN resources r ON r.id=l.source"
+                ).fetchall():
+                    queue(
+                        conn,
+                        "POST",
+                        "/references",
+                        {
+                            "source": identity({"kind": link["kind"], "id": link["source"]}),
+                            "target": link["target"],
+                            "relation": "mnemosyne.related",
+                            "readers": json.loads(link["readers"]),
+                        },
+                        link["id"],
+                    )
+
+    @app.post("/empyrean/v1/backup/restore")
+    async def backup_restore(request: Request):
+        require_resolver(request)
+        path = await receive_artifact(request)
+        try:
+            try:
+                await run_in_threadpool(check_artifact, request, path)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc))
+            await run_in_threadpool(replace_data, path)
+        finally:
+            path.unlink(missing_ok=True)
+        return {"restored": True}
+
+    @app.post("/empyrean/v1/backup/finalize")
+    def backup_finalize(request: Request):
+        require_resolver(request)
+        instant = clock()
+        with db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # Trash that expired while it sat in the backup gets a fresh retention period.
+            for ws in conn.execute(
+                "SELECT * FROM workspaces WHERE trash_retention_days IS NOT NULL"
+            ).fetchall():
+                cutoff = instant - timedelta(days=ws["trash_retention_days"])
+                for row in conn.execute(
+                    "SELECT id,trashed_at FROM resources WHERE workspace=? AND trashed=1 "
+                    "AND trashed_at IS NOT NULL",
+                    (ws["id"],),
+                ).fetchall():
+                    if datetime.fromisoformat(row["trashed_at"]) <= cutoff:
+                        conn.execute(
+                            "UPDATE resources SET trashed_at=? WHERE id=?",
+                            (instant.isoformat(), row["id"]),
+                        )
+        suspended.unlink(missing_ok=True)
+        return {"finalized": True}
 
     @app.post("/api/w/{wid}/resources/{rid}/attachments")
     def attach(wid: str, rid: str, body: Attachment):

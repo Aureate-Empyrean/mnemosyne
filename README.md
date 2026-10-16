@@ -28,8 +28,21 @@ Mnemosyne V1 subset. Licensed AGPL-3.0-or-later.
 
 ## Run through Nexus
 
-Requires the generic Nexus 0.1.2 application infrastructure extension (see Nexus
-`docs/application-infrastructure.md`). No direct public module port is used.
+Requires Nexus 0.1.3 or later within 0.1.x: the application infrastructure extension
+(see Nexus `docs/application-infrastructure.md`), Entity References v2 and backup v1.
+No direct public module port is used.
+
+Mnemosyne participates in the Nexus lifecycle contracts (Nexus
+`docs/lifecycle-and-recovery.md`):
+
+- **Outgoing-reference enumeration**: `GET /empyrean/v1/references/outgoing` lists every
+  edge Mnemosyne publishes, so owners can rebuild the Nexus index from Mnemosyne data.
+  Permanently deleting a resource removes its published edges.
+- **Backup v1**: the artifact is a consistent SQLite snapshot (`mnemosyne-sqlite`,
+  format 1), restorable by any 1.x release at or above the exporting version; older
+  schemas migrate forward. Restore preserves resource UUIDs, re-publishes edges and
+  suspends automatic Trash purges until Nexus finalizes the restore. Trash that expired
+  inside the backup then receives a fresh retention period.
 
 ```sh
 docker compose build
@@ -52,6 +65,8 @@ npm test
 npm run check
 # With local Nexus and Mnemosyne running, plus installed Playwright Chromium:
 node scripts/browser_qa.cjs
+# Disposable Nexus installation (built Nexus and mnemosyne:1.1.0 images required):
+python scripts/nexus_integration.py ../empyrean-nexus
 ```
 
 Production dependencies are pinned in `requirements.lock`. The application uses

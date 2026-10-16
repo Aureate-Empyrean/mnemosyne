@@ -16,11 +16,17 @@ class SharedServices:
         self.calls = []
         self.blobs = {}
         self.fail = False
+        self.gone = False
 
     def request(self, method, path, body=None):
         if self.fail:
             raise httpx.ConnectError("offline")
         self.calls.append((method, path, body))
+        if method == "DELETE" and self.gone:
+            request = httpx.Request(method, "http://nexus" + path)
+            raise httpx.HTTPStatusError(
+                "gone", request=request, response=httpx.Response(404, request=request)
+            )
         if path == "/blobs":
             self.blobs["blob"] = body["content"]
             return {"id": "blob"}
@@ -489,3 +495,140 @@ def test_completed_view_and_daily_trash_recovery(env):
     assert existing["id"] == note["id"] and existing["trashed"]
     c.post(f"/api/w/{a}/trash", json={"action": "restore", "ids": [note["id"]]})
     assert not c.post(f"/api/w/{a}/daily/2026-09-30").json()["trashed"]
+
+
+RESOLVER = {"X-Nexus-Resolver-Key": KEY}
+
+
+def test_outgoing_enumeration_is_authenticated_complete_and_paged(env):
+    c, app, nexus, a, b, _ = env
+    target = make(c, a, title="Target")
+    sources = [make(c, a, content=f"[t]({target['reference']})") for _ in range(3)]
+    c.post(
+        f"/api/w/{a}/resources/{sources[0]['id']}/links",
+        json={"target": "nexus:v1:meridian:person:0b9a3c55-4a43-4d2c-9d7e-8f3a3a1c2b11"},
+    )
+    url = "/empyrean/v1/references/outgoing"
+    assert c.get(url).status_code == 403
+    assert c.get(url, headers={"X-Nexus-Resolver-Key": "wrong"}).status_code == 403
+    edges, cursor = [], None
+    for _ in range(10):
+        page = c.get(
+            url, params={"limit": 2, **({"cursor": cursor} if cursor else {})}, headers=RESOLVER
+        ).json()
+        assert len(page["references"]) <= 2
+        edges += page["references"]
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert len(edges) == 4
+    assert len({(e["source"], e["target"]) for e in edges}) == 4
+    assert all(e["relation"] == "mnemosyne.related" and e["metadata"] == {} for e in edges)
+    assert {e["source"] for e in edges} == {s["reference"] for s in sources}
+
+
+def test_permanent_delete_removes_published_edges_and_tolerates_missing(env):
+    c, app, nexus, a, b, _ = env
+    target = make(c, a)
+    source = make(c, a, content=f"[t]({target['reference']})")
+    app.state.flush(force=True)
+    assert c.get(f"/api/w/{a}/resources/{source['id']}").json()["links"][0]["remote_id"]
+    update(c, a, source, trashed=True)
+    nexus.gone = True  # The index already lost the edge; deletion must still complete.
+    c.post(f"/api/w/{a}/trash", json={"action": "empty", "confirmed": True})
+    app.state.flush(force=True)
+    assert ("DELETE", "/references/remote-id", None) in nexus.calls
+    assert c.get("/api/sync").json()["pending"] == 0
+    page = c.get("/empyrean/v1/references/outgoing", headers=RESOLVER).json()
+    assert page == {"references": [], "next_cursor": None}
+
+
+def backup_headers(response):
+    return {k: v for k, v in response.headers.items() if k.lower().startswith("x-empyrean-backup-")}
+
+
+def test_backup_roundtrip_preserves_identity_and_suspends_purges(tmp_path, monkeypatch):
+    from datetime import timezone
+
+    monkeypatch.setenv("NEXUS_RESOLVER_KEY", KEY)
+    instant = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+    nexus = SharedServices()
+    app = create_app(tmp_path, nexus, clock=lambda: instant[0])
+    with TestClient(app, headers={"X-Nexus-Gateway-Key": KEY}) as c:
+        a = c.post("/api/workspaces", json={"title": "A"}).json()["id"]
+        target = make(c, a, title="Kept")
+        source = make(c, a, title="Source", content=f"[t]({target['reference']})")
+        trashed = update(c, a, make(c, a, title="Old trash"), trashed=True).json()
+        assert c.post("/empyrean/v1/backup/export").status_code == 403
+        exported = c.post("/empyrean/v1/backup/export", headers=RESOLVER)
+        assert exported.status_code == 200
+        headers = backup_headers(exported)
+        assert headers["x-empyrean-backup-module"] == "mnemosyne"
+        assert headers["x-empyrean-backup-module-version"] == "1.1.0"
+        assert headers["x-empyrean-backup-format"] == "mnemosyne-sqlite"
+        assert headers["x-empyrean-backup-restorable-by"] == ">=1.1.0,<2"
+        assert not list(tmp_path.glob("*.part"))
+        artifact = exported.content
+
+        # Diverge after the backup: edit, delete and create.
+        update(c, a, source, title="Changed")
+        make(c, a, title="Created later")
+        c.post(f"/api/w/{a}/trash", json={"action": "empty", "confirmed": True})
+        app.state.flush(force=True)
+
+        both = {**RESOLVER, **headers}
+        valid = c.post("/empyrean/v1/backup/validate", content=artifact, headers=both)
+        assert valid.json() == {"valid": True}
+        assert c.get(f"/api/w/{a}/resources/{source['id']}").json()["title"] == "Changed"
+        restored = c.post("/empyrean/v1/backup/restore", content=artifact, headers=both)
+        assert restored.json() == {"restored": True}
+        titles = {r["id"]: r["title"] for r in c.get(f"/api/w/{a}/resources").json()}
+        assert titles == {target["id"]: "Kept", source["id"]: "Source"}
+        assert c.get(f"/api/w/{a}/resources/{trashed['id']}").json()["trashed"]
+
+        # Edges are re-published from restored data, not replayed from the old outbox.
+        nexus.calls.clear()
+        app.state.flush(force=True)
+        assert [call[0:2] for call in nexus.calls] == [("POST", "/references")]
+
+        # Expired restored Trash is not purged before finalize, and gets a fresh period after.
+        instant[0] += timedelta(days=45)
+        assert app.state.cleanup_trash() == 0
+        assert c.post("/empyrean/v1/backup/finalize", headers=RESOLVER).json() == {
+            "finalized": True
+        }
+        assert app.state.cleanup_trash() == 0
+        assert c.get(f"/api/w/{a}/resources/{trashed['id']}").status_code == 200
+        instant[0] += timedelta(days=30)
+        assert app.state.cleanup_trash() == 1
+
+
+def test_backup_validation_rejects_foreign_damaged_and_newer_artifacts(env, tmp_path):
+    import sqlite3
+
+    from mnemosyne.db import MIGRATIONS
+
+    c, app, nexus, a, b, path = env
+    exported = c.post("/empyrean/v1/backup/export", headers=RESOLVER)
+    headers = {**RESOLVER, **backup_headers(exported)}
+
+    def valid(content, **extra):
+        response = c.post(
+            "/empyrean/v1/backup/validate", content=content, headers={**headers, **extra}
+        )
+        return response.status_code
+
+    assert valid(exported.content) == 200
+    assert valid(b"not a database") == 422
+    assert valid(exported.content, **{"X-Empyrean-Backup-Module": "janus"}) == 422
+    assert valid(exported.content, **{"X-Empyrean-Backup-Format-Version": "2"}) == 422
+    newer = tmp_path / "newer.sqlite3"
+    newer.write_bytes(exported.content)
+    conn = sqlite3.connect(newer)
+    conn.execute(f"PRAGMA user_version={len(MIGRATIONS) + 1}")
+    conn.close()
+    assert valid(newer.read_bytes()) == 422
+    response = c.post("/empyrean/v1/backup/restore", content=b"junk", headers=headers)
+    assert response.status_code == 422
+    assert len(c.get("/api/workspaces").json()) == 2
+    assert not list(path.glob("*.part")) and not (path / "purge-suspended").exists()
