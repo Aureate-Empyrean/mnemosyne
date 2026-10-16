@@ -60,8 +60,9 @@ configuration and the retained storage volume were preserved.
 
 - Markdown source and rendered preview; no rich block editor or offline sync.
 - Attachments remain limited to 1 MiB; board columns remain fixed.
-- Root-page reload selects the first active Workspace. Resource deep links retain
-  their Workspace; the visible switcher always scopes subsequent data requests.
+- ~~Root-page reload selects the first active Workspace.~~ Fixed in 1.1.0: the last
+  opened active Workspace is stored server-side (schema 4) and reopened. Resource deep
+  links retain their Workspace; the visible switcher always scopes data requests.
 - Retention runs at startup and approximately once a minute while the app is running.
   Existing Trash receives a fresh retention period during migration because its
   historical deletion timestamp was unavailable. Shared blob garbage collection

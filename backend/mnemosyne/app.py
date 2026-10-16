@@ -436,6 +436,13 @@ def create_app(data_dir=None, nexus=None, clock=None):
             )
         return {"id": wid}
 
+    @app.post("/api/workspaces/{wid}/open")
+    def open_workspace(wid: str):
+        with db.connect() as conn:
+            workspace(conn, wid)
+            conn.execute("UPDATE workspaces SET opened_at=? WHERE id=?", (now(), wid))
+        return {"id": wid}
+
     @app.get("/api/w/{wid}/resources")
     def listing(
         wid: str,

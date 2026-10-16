@@ -2993,6 +2993,7 @@ async function switchWorkspace(id) {
   closeDrawer({ flush: false });
   sessions.clear();
   state.wid = id;
+  api(`/api/workspaces/${id}/open`, "POST").catch(() => {});
   Object.assign(state, {
     view: "home",
     noteId: null,
@@ -4562,10 +4563,11 @@ async function boot() {
   if (!state.workspaces.length) return welcome();
   const deep = location.pathname.match(/\/w\/([^/]+)\/r\/([^/]+)/);
   const deepWorkspace = deep && state.workspaces.find((w) => w.id === deep[1]);
-  state.wid =
-    deepWorkspace?.id ||
-    state.workspaces.find((w) => !w.archived)?.id ||
-    state.workspaces[0].id;
+  // Reopen the last opened active Workspace; deep links keep their own Workspace.
+  const recent = state.workspaces
+    .filter((w) => !w.archived)
+    .sort((a, b) => (b.opened_at || "").localeCompare(a.opened_at || ""));
+  state.wid = deepWorkspace?.id || recent[0]?.id || state.workspaces[0].id;
   renderShell();
   try {
     await loadResources();

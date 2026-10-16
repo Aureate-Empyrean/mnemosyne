@@ -34,6 +34,8 @@ CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, method TEXT NOT NULL,
       CHECK(trash_retention_days IS NULL OR trash_retention_days IN (7,14,30,60,90));
     UPDATE resources SET trashed_at=strftime('%Y-%m-%dT%H:%M:%f+00:00','now') WHERE trashed=1;
     CREATE INDEX trash_expiry ON resources(workspace,trashed,trashed_at);""",
+    # Remembers the last opened Workspace: the sandboxed UI has no browser storage.
+    """ALTER TABLE workspaces ADD COLUMN opened_at TEXT;""",
 ]
 
 
