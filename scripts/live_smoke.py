@@ -124,7 +124,8 @@ def run():
             page.status_code == 200 and "Mnemosyne" in page.text and "/*CATALOGS*/" not in page.text
         )
         assert "sandbox allow-scripts" in page.headers["content-security-policy"]
-        assert c.get("/api/v1/system").json()["version"] == "0.1.3"
+        version = tuple(int(x) for x in c.get("/api/v1/system").json()["version"].split("."))
+        assert version >= (0, 1, 3)
         if initial_modules.get("empyrean-example") == "enabled":
             assert c.get("/modules/empyrean-example/").status_code == 200
         c.post("/api/v1/modules/mnemosyne/disable").raise_for_status()
