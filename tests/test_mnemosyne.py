@@ -17,6 +17,7 @@ class SharedServices:
         self.blobs = {}
         self.fail = False
         self.gone = False
+        self.status = None
 
     def request(self, method, path, body=None):
         if self.fail:
@@ -26,6 +27,11 @@ class SharedServices:
             request = httpx.Request(method, "http://nexus" + path)
             raise httpx.HTTPStatusError(
                 "gone", request=request, response=httpx.Response(404, request=request)
+            )
+        if self.status and not (method == "POST" and path == "/events"):
+            request = httpx.Request(method, "http://nexus" + path)
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(self.status, request=request)
             )
         if path == "/blobs":
             self.blobs["blob"] = body["content"]
@@ -658,3 +664,19 @@ def test_page_uses_shared_tokens_and_embedded_font(env):
     defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", page))
     used = set(re.findall(r"var\((--[a-z0-9-]+)", page))
     assert used <= defined, used - defined
+
+
+def test_refused_reference_leaves_the_outbox_but_stays_enumerated(env):
+    c, app, nexus, a, b, _ = env
+    source = make(c, a)
+    person = "nexus:v1:meridian:person:0b9a3c55-4a43-4d2c-9d7e-8f3a3a1c2b11"
+    app.state.flush(force=True)
+    nexus.status = 500  # transient: keeps retrying
+    c.post(f"/api/w/{a}/resources/{source['id']}/links", json={"target": person})
+    app.state.flush(force=True)
+    assert c.get("/api/sync").json()["pending"] == 1
+    nexus.status = 422  # Nexus refuses: the target module is not installed
+    app.state.flush(force=True)
+    assert c.get("/api/sync").json()["pending"] == 0
+    edges = c.get("/empyrean/v1/references/outgoing", headers=RESOLVER).json()["references"]
+    assert [e["target"] for e in edges] == [person]
