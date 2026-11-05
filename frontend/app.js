@@ -843,18 +843,31 @@ function session(id) {
   return sessions.get(id);
 }
 async function openSession(id) {
+  const workspace = state.wid, epoch = restoration;
   const existing = sessions.get(id);
   if (existing && (existing.dirty || existing.flight || existing.error))
     return existing;
   const r = await api(wp("/resources/" + id));
+  if (moduleNavigation.enabled && (workspace !== state.wid || epoch !== restoration))
+    throw Error('Navigation superseded');
+  const retained = retainedDrafts.get(draftKey(state.wid, id));
   const s = existing || {
     dirty: false,
     timer: null,
     flight: null,
     error: null,
   };
+  s.wid = state.wid;
   s.r = r;
-  s.error = null;
+  if (retained) {
+    const saved = {...body(r)}, draft = {...body(retained.resource)};
+    delete saved.revision; delete draft.revision;
+    if (JSON.stringify(saved) !== JSON.stringify(draft)) {
+      s.r = structuredClone(retained.resource); s.dirty = true;
+      s.error = 'failed'; s.errorMessage = t('Recovered draft. Review and retry saving.');
+    } else retainedDrafts.delete(draftKey(state.wid, id));
+  }
+  if (!s.dirty) s.error = null;
   sessions.set(id, s);
   return s;
 }
@@ -862,6 +875,7 @@ function edit(s, patch, delay = 650) {
   if (!s || readOnly() || s.r.trashed) return;
   Object.assign(s.r, patch);
   s.dirty = true;
+  retainDrafts();
   if (s.error !== "conflict") s.error = null;
   status(s, "unsaved");
   clearTimeout(s.timer);
@@ -880,15 +894,15 @@ async function saveSession(s) {
   const current = s.r;
   s.dirty = false;
   status(s, "saving");
-  s.flight = api(wp("/resources/" + current.id), "PUT", body(current))
+  const workspace = s.wid || state.wid;
+  s.flight = api('/api/w/' + workspace + '/resources/' + current.id, "PUT", body(current))
     .then((result) => {
       current.revision = result.revision;
       current.updated_at = result.updated_at;
       current.completed_at = result.completed_at;
       current.trashed_at = result.trashed_at;
       s.error = null;
-      upsert(result);
-      patchRows(result.id);
+      if (workspace === state.wid) { upsert(result); patchRows(result.id); }
       status(s, s.dirty ? "unsaved" : "saved");
       if (s.dirty)
         s.timer = setTimeout(() => saveSession(s).catch(() => {}), 400);
@@ -901,7 +915,7 @@ async function saveSession(s) {
       status(s);
       throw error;
     })
-    .finally(() => (s.flight = null));
+    .finally(() => { s.flight = null; retainDrafts(); });
   return s.flight;
 }
 async function reloadSession(s) {
@@ -976,7 +990,9 @@ async function flushAll() {
   for (const s of failed) {
     clearTimeout(s.timer);
     sessions.delete(s.r.id);
+    retainedDrafts.delete(draftKey(s.wid || state.wid, s.r.id));
   }
+  retainDrafts();
   return true;
 }
 async function keepMine(s) {
@@ -989,11 +1005,18 @@ async function keepMine(s) {
 }
 async function useSaved(s) {
   clearTimeout(s.timer);
-  s.r = await api(wp("/resources/" + s.r.id));
+  const workspace = s.wid || state.wid;
+  s.r = await api('/api/w/' + workspace + '/resources/' + s.r.id);
   s.dirty = false;
   s.error = null;
-  upsert(s.r);
-  rerenderSessionViews(s.r.id);
+  if (workspace === state.wid) upsert(s.r);
+  retainedDrafts.delete(draftKey(s.wid || state.wid, s.r.id));
+  retainDrafts();
+  if (moduleNavigation.enabled && workspace === state.wid) {
+    // A list-only soft render leaves the discarded text in the visible editor.
+    await renderView({});
+    if (state.drawer) renderDrawer();
+  } else rerenderSessionViews(s.r.id);
   toast(t("Showing the saved version."));
 }
 function dropSessions(keep = []) {
@@ -1033,7 +1056,9 @@ function upsert(r) {
   else state.resources.unshift(summary);
 }
 async function loadResources() {
-  state.resources = state.wid ? await api(wp("/resources")) : [];
+  const workspace = state.wid, epoch = restoration;
+  const resources = workspace ? await api('/api/w/' + workspace + '/resources') : [];
+  if (!moduleNavigation.enabled || (workspace === state.wid && epoch === restoration)) state.resources = resources;
 }
 
 /* ───────────────────────── Rows ───────────────────────── */
@@ -1214,6 +1239,10 @@ function crumbs(items) {
 
 const VIEWS = {};
 async function go(view, options = {}) {
+  if (moduleNavigation.enabled) {
+    if (applyingNavigation) return;
+    return navigateState(view, options);
+  }
   if (!(await flushAll())) return;
   closePopover();
   const previous = state.view;
@@ -1246,9 +1275,11 @@ function softRender() {
   return renderView({ soft: true });
 }
 async function openResource(id, { context } = {}) {
+  const revision = moduleNavigation.revision;
   if (!(await flushAll())) return;
   let r = find(id);
   if (!r) r = await api(wp("/resources/" + id));
+  if (moduleNavigation.enabled && revision !== moduleNavigation.revision) return;
   if (r.trashed) {
     toast(t("“{title}” is in Trash.", { title: displayTitle(r) }), {
       action: t("Open Trash"),
@@ -1274,8 +1305,10 @@ async function openResource(id, { context } = {}) {
     });
 }
 async function openDaily() {
+  const revision = moduleNavigation.revision;
   if (!(await flushAll())) return;
   const r = await api(wp("/daily/" + today()), "POST");
+  if (moduleNavigation.enabled && revision !== moduleNavigation.revision) return;
   upsert(r);
   await go("note", {
     set: { noteId: r.id, noteContext: null, preview: false },
@@ -1290,6 +1323,8 @@ async function openDaily() {
 /* ───────────────────────── Drawer (inspector & details) ───────────────────────── */
 
 async function openTask(id, { focus = false } = {}) {
+  if (moduleNavigation.enabled && !applyingNavigation)
+    return navigateState(state.view, {set:{drawer:{mode:'task',id}}});
   if (state.drawer?.mode === "task" && state.drawer.id === id) {
     if (focus) $("#drawer .drawer-title")?.focus();
     return;
@@ -1310,6 +1345,8 @@ async function openTask(id, { focus = false } = {}) {
   return s;
 }
 async function openDetails(id) {
+  if (moduleNavigation.enabled && !applyingNavigation)
+    return navigateState(state.view, {set:{drawer:{mode:'details',id}}});
   await openSession(id);
   state.drawer = { mode: "details", id };
   renderDrawer();
@@ -1318,6 +1355,8 @@ async function openDetails(id) {
   );
 }
 function closeDrawer({ flush = true } = {}) {
+  if (moduleNavigation.enabled && !applyingNavigation && flush && state.drawer)
+    return navigateState(state.view, {set:{drawer:null}});
   const current = state.drawer;
   if (!current) return;
   const s = sessions.get(current.id);
@@ -2245,9 +2284,12 @@ function noteEditorHtml(r, context) {
   </div>`;
 }
 async function mountNoteEditor(container, id, context) {
+  const token = renderToken;
   const s = await openSession(id);
+  if (token !== renderToken || !container.isConnected) return s;
   container.innerHTML = noteEditorHtml(s.r, context);
   $$("textarea.autosize", container).forEach(autosize);
+  if (s.dirty || s.error) status(s);
   if (state.preview) await renderPreview(s);
   if (state.drawer?.mode === "details" && state.drawer.id !== id) closeDrawer();
   return s;
@@ -2295,6 +2337,7 @@ VIEWS.note = async function renderNotes({ token, soft }) {
   }
 };
 async function createNote(extra = {}, { context } = {}) {
+  const revision = moduleNavigation.revision;
   if (!(await flushAll())) return;
   const r = await api(wp("/resources"), "POST", {
     kind: "note",
@@ -2302,6 +2345,7 @@ async function createNote(extra = {}, { context } = {}) {
     status: "open",
     ...extra,
   });
+  if (moduleNavigation.enabled && revision !== moduleNavigation.revision) return;
   upsert(r);
   return r;
 }
@@ -2676,6 +2720,10 @@ function snippetAround(text, query) {
 VIEWS.search = async function renderSearch({ token }) {
   const q = state.query;
   crumbs([{ label: t("Search") }]);
+  if (moduleNavigation.enabled && !q) {
+    $("#view").innerHTML = `<div class="page">${emptyState('search',t('Search this Workspace'),t('Enter a search above. Search text is kept out of shared links.'))}</div>`;
+    return;
+  }
   const rows = await api(wp("/resources?q=" + encodeURIComponent(q)));
   if (token !== renderToken) return;
   const order = ["note", "task", "project", "collection"];
@@ -2700,6 +2748,12 @@ function onSearchInput(value) {
     () =>
       run(async () => {
         const q = value.trim();
+        if (moduleNavigation.enabled) {
+          if (!q) return go(state.returnView || 'home');
+          state.returnView = state.view === 'search' ? state.returnView : state.view;
+          inputDrafts.set(state.wid + ':search:search', {value:q});
+          return go('search', {historyMode:state.view === 'search' ? 'replace' : 'push'});
+        }
         if (!q) {
           if (state.view === "search") await go(state.returnView || "home");
           return;
@@ -3000,6 +3054,7 @@ async function newWorkspace() {
   await switchWorkspace(created.id);
 }
 async function switchWorkspace(id) {
+  if (moduleNavigation.enabled) return navigateState('home', {set:{wid:id}});
   if (!(await flushAll())) return;
   closeDrawer({ flush: false });
   sessions.clear();
@@ -3019,6 +3074,10 @@ async function switchWorkspace(id) {
   await loadResources();
   updateShell();
   await renderView({});
+  if (!moduleNavigation.enabled && state.context.navigation?.versions?.includes(1)) {
+    await moduleNavigation.start(state.context);
+    if (!draftStorageError) await moduleNavigation.navigate(MnemosyneRoutes.serialize(state), 'replace');
+  }
   const name = $(".ws-name");
   animate(
     name,
@@ -3108,7 +3167,8 @@ function currentEditorSession() {
   const host = $("#view [data-session]");
   return host ? sessions.get(host.dataset.session) : null;
 }
-function insertMarkdown(before, after = "") {
+async function insertMarkdown(before, after = "") {
+  if (state.preview && moduleNavigation.enabled) await setPreview(false);
   const area = $("#markdown");
   if (!area || area.readOnly) return;
   if (state.preview) setPreview(false);
@@ -3126,6 +3186,8 @@ function insertMarkdown(before, after = "") {
   area.dispatchEvent(new Event("input", { bubbles: true }));
 }
 async function setPreview(on) {
+  if (moduleNavigation.enabled && !applyingNavigation)
+    return navigateState(state.view, {set:{preview:on,drawer:state.drawer}});
   const s = currentEditorSession();
   state.preview = on;
   const editor = $(".note-editor");
@@ -3189,6 +3251,7 @@ function activeSessionFor(el) {
 /* ───────────────────────── Actions (event delegation) ───────────────────────── */
 
 const actions = {
+  "recover-navigation-draft": el => moduleNavigation.navigate('/w/' + el.dataset.wid + '/r/' + el.dataset.id),
   "workspace-menu": (el) => workspaceMenu(el),
   "apps-menu": (el) =>
     menu(
@@ -3201,6 +3264,7 @@ const actions = {
       ],
       async (item) => {
         if (!(await flushAll())) return;
+        await checkpointDrafts();
         await bridge("navigate", { module: item.value });
       },
     ),
@@ -3731,6 +3795,7 @@ const actions = {
     });
   },
   "project-tab": (el) => {
+    if (moduleNavigation.enabled) return go('project', {set:{projectTab:el.dataset.projectTab}});
     state.projectTab = el.dataset.projectTab;
     $$(".tab[data-project-tab]").forEach((b) => {
       const on = b.dataset.projectTab === state.projectTab;
@@ -4098,6 +4163,7 @@ document.addEventListener("click", (e) => {
   const taskTab = target.closest?.("[data-task-view]");
   if (taskTab && taskTab.classList.contains("tab")) {
     const view = taskTab.dataset.taskView;
+    if (moduleNavigation.enabled) { run(() => go('task', {set:{taskView:view}})); return; }
     run(async () => {
       if (!(await flushAll())) return;
       state.taskView = view;
@@ -4137,6 +4203,7 @@ document.addEventListener("click", (e) => {
         });
       }
       if (state.view === "note") {
+        if (moduleNavigation.enabled) return go('note', {set:{noteId:id,noteContext:null,preview:false}});
         if (!(await flushAll())) return;
         state.noteId = id;
         state.noteContext = null;
@@ -4185,6 +4252,7 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("input", (e) => {
   const el = e.target;
+  if (el.id === 'capture-input' || el.id === 'quick-add-input') retainDrafts();
   if (el.matches?.("textarea.autosize")) autosize(el);
   if (el.id === "search") return onSearchInput(el.value);
   if (el.id === "note-filter") {
@@ -4370,6 +4438,7 @@ document.addEventListener("keydown", (e) => {
         input.disabled = false;
         el.disabled = false;
         input.focus();
+        retainDrafts();
       }
     });
     return;
@@ -4581,6 +4650,13 @@ async function boot() {
   state.wid = deepWorkspace?.id || recent[0]?.id || state.workspaces[0].id;
   renderShell();
   try {
+    if (await moduleNavigation.start(state.context)) {
+      // Adopt old bare/path URLs without creating an extra Back step.
+      if (!draftStorageError && moduleNavigation.route !== MnemosyneRoutes.serialize(state))
+        await moduleNavigation.navigate(MnemosyneRoutes.serialize(state), 'replace');
+      checkSync(); clearInterval(syncTimer); syncTimer = setInterval(checkSync, 20000);
+      return;
+    }
     await loadResources();
     updateShell();
     if (deepWorkspace) await openResource(deep[2]);

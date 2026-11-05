@@ -28,7 +28,7 @@ Mnemosyne V1 subset. Licensed AGPL-3.0-or-later.
 
 ## Run through Nexus
 
-Requires Nexus 0.1.3 or later within 0.1.x: the application infrastructure extension
+Requires Nexus 0.1.8 or later within 0.1.x (1.2.3 declares an application icon; 1.2.0–1.2.2 need 0.1.5): the application infrastructure extension
 (see Nexus `docs/application-infrastructure.md`), Entity References v2 and backup v1.
 No direct public module port is used.
 
@@ -53,6 +53,23 @@ Review/install `manifest.local.json` through Nexus, then enable Mnemosyne.
 Open `http://localhost:12333/app/modules/mnemosyne`. Nexus authenticates every
 request; module APIs also authenticate the gateway. There is no demo login.
 
+## Navigation History pilot (local, default-off)
+
+The current working tree contains the first real module integration for Nexus's
+shared navigation-history SDK. With `NEXUS_NAVIGATION_HISTORY=1` in a matching
+Nexus process, internal views/resource drawers update the parent URL and native
+Back/Forward (including Mouse4/5) restores them. Legacy resource URLs and old-host
+memory navigation remain supported; no manifest privilege or sandbox relaxation
+is added. The flag is not forwarded by Nexus's checked-in Compose file.
+
+The module keeps autosave/conflict guards and tab-local draft recovery across
+supported navigation/reload flows. These private checkpoints are not backups or
+an unconditional guarantee against tab/browser failure. Read [navigation and
+recovery behavior](docs/NAVIGATION_HISTORY.md) for route coverage, activation,
+SDK packaging and limits. Sixteen scenarios were validated against real local
+Nexus + Mnemosyne + unchanged Chronos HTTP apps; this is not production deployment
+or an all-module migration.
+
 ## Development and tests
 
 ```sh
@@ -65,7 +82,7 @@ npm test
 npm run check
 # With local Nexus and Mnemosyne running, plus installed Playwright Chromium:
 node scripts/browser_qa.cjs
-# Disposable Nexus installation (built Nexus and mnemosyne:1.1.0 images required):
+# Disposable Nexus installation (built Nexus and mnemosyne:1.2.3 images required):
 python scripts/nexus_integration.py ../empyrean-nexus
 ```
 
@@ -73,6 +90,12 @@ Production dependencies are pinned in `requirements.lock`. The application uses
 FastAPI and migrated SQLite, matching Nexus deployment conventions. `/data` is a
 broker-managed durable volume. An image rebuild never initializes example data.
 Theme values live at the top of `frontend/style.css`; resource accents are separate.
+
+## Design
+
+Mnemosyne 1.2.2 uses token set 2.1 (architecture ADR 0012, ADR 0014) with a "lamplight" composition: a dim violet dusk with one warm amber lamp, a floating glass sidebar and toolbar, and the work on an elevated, nearly opaque sheet so long-form reading and writing stay calm (16 px, 1.75 line height in the editor and reader). Inside the sheet nothing is glass: task lists, recent items and board columns are quiet hairline groups and project headers are open. The drawer, menus, dialogs and toasts float as glass with a specular edge; glass falls back to solid surfaces without `backdrop-filter` or under reduced transparency. One radius scale: controls 9 px, groups 12 px, surfaces 18 px. Presentation only: the API, data, markup and workflows are unchanged. Screenshots (Playwright, 1440 px and 390 px, inside the Nexus sandbox): `docs/screenshots/` (`before-` original, `previous-` 1.2.1, `after-` 1.2.2).
+
+Its application icon (1.2.3) is the header's four-point star on its violet tile, served at `/icon.svg` for Nexus (manifest `icon`).
 
 ## Typography
 
@@ -125,6 +148,17 @@ The authenticated API provides `GET/PUT /api/w/{wid}/trash/policy` (`days`: inte
 or null), and `POST /api/w/{wid}/trash` (`action`: restore/delete/empty, `ids` for
 selected items, `confirmed: true` for deletion). Individual `DELETE` requests now
 require `?confirmed=true`. Batch actions validate all IDs before mutating anything.
+
+## Task deadlines for Chronos (1.2.0)
+
+Mnemosyne 1.2.0 adds one read-only interface and nothing else: it provides the `dated-items`
+projection (architecture ADR 0011, `concepts/projections.md`) at
+`POST /empyrean/v1/projections/dated-items`, authenticated with the Nexus resolver key. It
+returns non-trashed Tasks with a deadline in active Workspaces as all-day items with status
+(open, completed, cancelled) and the Workspace title as presentation context. Nexus forwards
+only requesters the owner granted this exact scope; Chronos shows them only after the user opts
+in. Tasks, deadlines and reminder intent remain Mnemosyne's; nothing is written. Requires Nexus
+0.1.5 (the manifest declares `projections`); data, schema and interface are unchanged.
 
 ## V1 limits
 

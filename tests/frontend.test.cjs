@@ -2,7 +2,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { JSDOM } = require("jsdom");
 const fs = require("node:fs");
-const source = fs.readFileSync("frontend/app.js", "utf8");
+const source = ["vendor/nexus-navigation.js", "navigation-routes.js", "navigation.js", "app.js"]
+  .map(name => fs.readFileSync("frontend/" + name, "utf8")).join("\n");
 const tick = () => new Promise((r) => setTimeout(r, 20));
 async function settle() {
   await tick();

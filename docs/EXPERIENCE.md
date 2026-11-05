@@ -11,6 +11,11 @@ menus and confirmations, never as permanent red buttons.
 
 ## Shell
 
+Since 1.2.1 the shell floats on a lamplight atmosphere (violet dusk, one warm amber
+lamp): the sidebar and top bar are glass, the view is an elevated, nearly opaque
+sheet, and the drawer floats with the same frame (README, "Design"). Since 1.2.2
+nothing inside the sheet is glass; lists and board columns are hairline groups.
+
 - **Sidebar**: brand mark, a Workspace switcher (a button with a menu listing
   Workspaces, archived ones separately, "New Workspace…" and "Manage Workspaces"),
   the five primary destinations (Home, Notes, Tasks, Projects, Collections) with a
@@ -22,8 +27,10 @@ menus and confirmations, never as permanent red buttons.
 - **Drawer**: one right-hand drawer serves as the Task inspector and as the details
   panel for Notes, Projects and Collections. At 1280 px and wider it pushes the
   content aside so the list stays visible; below that it overlays.
-- The shell renders once; only the view and the drawer re-render, so focus and
-  motion stay continuous.
+- The shell normally renders once; view/drawer changes happen inside it. With the
+  default-off [Navigation History pilot](NAVIGATION_HISTORY.md), Nexus also retains
+  the same module iframe across internal routes and restores view state through
+  the URL. Module/path/code replacement still mounts a new iframe.
 
 ## Surfaces
 
@@ -71,7 +78,12 @@ menus and confirmations, never as permanent red buttons.
 - **Save safety**: autosave is quiet. When a save fails the status offers Retry;
   when the resource changed elsewhere it offers "Keep mine" or "Use saved". Leaving
   a surface with unsaved changes asks whether to stay, keep your version or discard.
-  Text is never discarded silently.
+  The local Navigation History pilot extends this with acknowledged tab-local
+  checkpoints before parent SPA routing and a recovery action for retained editor
+  drafts. Browser traversal cannot be canceled like a click guard; full reload/
+  close relies on snapshots already acknowledged and the unload warning. This is
+  not a guarantee against a crash, cleared storage or the latest unacknowledged
+  edit. See [the navigation/recovery contract](NAVIGATION_HISTORY.md).
 
 ## Typography
 

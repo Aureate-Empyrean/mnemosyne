@@ -29,7 +29,7 @@ REF = re.compile(
 )
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((nexus:v1:[^)\s]+)\)")
 KINDS = {"note", "task", "project", "collection"}
-VERSION = "1.1.0"
+VERSION = "1.2.3"
 # Backup artifact: a consistent SQLite snapshot. Older schemas migrate forward on restore.
 BACKUP_FORMAT = "mnemosyne-sqlite"
 BACKUP_FORMAT_VERSION = 1
@@ -800,6 +800,52 @@ def create_app(data_dir=None, nexus=None, clock=None):
             "next_cursor": page[-1]["id"] if len(rows) > limit else None,
         }
 
+    @app.post("/empyrean/v1/projections/dated-items")
+    def dated_items(body: dict, request: Request):
+        """Task deadlines as read-only dated items (architecture ADR 0011).
+
+        Nexus forwards only requesters the owner granted this exact scope; consumers keep
+        derived copies. Tasks, deadlines and reminder intent stay owned by Mnemosyne."""
+        require_resolver(request)
+        query = body.get("query") or {}
+        try:
+            start = date.fromisoformat(str(query.get("from")))
+            end = date.fromisoformat(str(query.get("to")))
+        except ValueError:
+            raise HTTPException(422, "from and to must be ISO dates")
+        if end <= start or (end - start).days > 800:
+            raise HTTPException(422, "The range must be 1 to 800 days")
+        cursor = str(body.get("cursor") or "")
+        with db.connect() as conn:
+            rows = conn.execute(
+                "SELECT r.id,r.title,r.status,r.due_date,r.updated_at,w.title AS workspace "
+                "FROM resources r JOIN workspaces w ON w.id=r.workspace WHERE r.kind='task' "
+                "AND r.trashed=0 AND w.archived=0 AND r.due_date>=? AND r.due_date<? AND r.id>? "
+                "ORDER BY r.id LIMIT 501",
+                (start.isoformat(), end.isoformat(), cursor),
+            ).fetchall()
+        page = rows[:500]
+        return {
+            "items": [
+                {
+                    "id": r["id"],
+                    "resource": identity({"kind": "task", "id": r["id"]}),
+                    "kind": "mnemosyne.task-deadline",
+                    "title": r["title"],
+                    "start": r["due_date"],
+                    "all_day": True,
+                    "certainty": "confirmed",
+                    "status": {"completed": "completed", "cancelled": "cancelled"}.get(
+                        r["status"], "open"
+                    ),
+                    "context": r["workspace"][:80],
+                    "updated_at": r["updated_at"],
+                }
+                for r in page
+            ],
+            "next_cursor": page[-1]["id"] if len(rows) > 500 else None,
+        }
+
     async def receive_artifact(request):
         """Stream an artifact into the data volume; /tmp is too small for real backups."""
         path = db.path.parent / f"restore-{uid()}.part"
@@ -1084,6 +1130,11 @@ def create_app(data_dir=None, nexus=None, clock=None):
         with db.connect() as conn:
             return {"pending": conn.execute("SELECT count(*) FROM outbox").fetchone()[0]}
 
+    @app.get("/icon.svg", include_in_schema=False)
+    def app_icon():
+        """The application icon Nexus shows in its switcher and module list (manifest `icon`)."""
+        return FileResponse(ROOT / "frontend/icon.svg", media_type="image/svg+xml")
+
     @app.get("/{path:path}", response_class=HTMLResponse)
     def ui(path: str):
         catalogs = {}
@@ -1105,6 +1156,12 @@ def create_app(data_dir=None, nexus=None, clock=None):
             .read_text()
             .replace("/*CATALOGS*/ {}", json.dumps(catalogs).replace("<", "\\u003c"))
         )
+        # Shared adapter is vendored at build time; gateway CSP permits inline scripts only.
+        navigation = "\n".join(
+            (ROOT / "frontend" / name).read_text(encoding="utf-8")
+            for name in ("vendor/nexus-navigation.js", "navigation-routes.js", "navigation.js")
+        )
+        script = navigation + "\n" + script
         html = (ROOT / "frontend/index.html").read_text()
         return html.replace("/*STYLE*/", STYLE).replace("/*SCRIPT*/", script)
 

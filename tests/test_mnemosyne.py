@@ -570,9 +570,9 @@ def test_backup_roundtrip_preserves_identity_and_suspends_purges(tmp_path, monke
         assert exported.status_code == 200
         headers = backup_headers(exported)
         assert headers["x-empyrean-backup-module"] == "mnemosyne"
-        assert headers["x-empyrean-backup-module-version"] == "1.1.0"
+        assert headers["x-empyrean-backup-module-version"] == "1.2.3"
         assert headers["x-empyrean-backup-format"] == "mnemosyne-sqlite"
-        assert headers["x-empyrean-backup-restorable-by"] == ">=1.1.0,<2"
+        assert headers["x-empyrean-backup-restorable-by"] == ">=1.2.3,<2"
         assert not list(tmp_path.glob("*.part"))
         artifact = exported.content
 
@@ -680,3 +680,62 @@ def test_refused_reference_leaves_the_outbox_but_stays_enumerated(env):
     assert c.get("/api/sync").json()["pending"] == 0
     edges = c.get("/empyrean/v1/references/outgoing", headers=RESOLVER).json()["references"]
     assert [e["target"] for e in edges] == [person]
+
+
+def test_task_deadline_projection_is_read_only_and_scoped(env):
+    c, app, nexus, a, b, _ = env
+    due = make(c, a, "task", title="Submit report", due_date="2026-11-18", priority="high")
+    make(c, b, "task", title="Old task", due_date="2026-11-20", status="completed")
+    make(c, a, "task", title="Someday", status="open")
+    make(c, a, "note", title="Note with no deadline")
+    gone = make(c, a, "task", title="Trashed", due_date="2026-11-19")
+    c.put(
+        f"/api/w/{a}/resources/{gone['id']}",
+        json={
+            **{k: gone[k] for k in ("kind", "title", "status", "due_date", "revision")},
+            "trashed": True,
+        },
+    )
+    headers = {"X-Nexus-Resolver-Key": KEY}
+    body = {
+        "requester": "chronos",
+        "query": {"from": "2026-11-01", "to": "2026-12-01"},
+        "cursor": None,
+    }
+    assert (
+        c.post(
+            "/empyrean/v1/projections/dated-items", json=body, headers={"X-Nexus-Resolver-Key": "x"}
+        ).status_code
+        == 403
+    )
+    items = c.post("/empyrean/v1/projections/dated-items", json=body, headers=headers).json()
+    found = {i["title"]: i for i in items["items"]}
+    assert set(found) == {"Submit report", "Old task"} and items["next_cursor"] is None
+    item = found["Submit report"]
+    assert item["resource"] == f"nexus:v1:mnemosyne:task:{due['id']}"
+    assert (item["start"], item["all_day"], item["status"], item["context"]) == (
+        "2026-11-18",
+        True,
+        "open",
+        "Personal",
+    )
+    assert found["Old task"]["status"] == "completed" and found["Old task"]["context"] == "Work"
+    # Serving the projection never changes the Task.
+    assert c.get(f"/api/w/{a}/resources/{due['id']}").json()["revision"] == due["revision"]
+    bad = {**body, "query": {"from": "2026-11-01", "to": "2026-10-01"}}
+    assert (
+        c.post("/empyrean/v1/projections/dated-items", json=bad, headers=headers).status_code == 422
+    )
+    c.put(f"/api/workspaces/{b}", json={"title": "Work", "archived": True})
+    items = c.post("/empyrean/v1/projections/dated-items", json=body, headers=headers).json()[
+        "items"
+    ]
+    assert [i["title"] for i in items] == ["Submit report"]
+
+
+def test_serves_its_application_icon(env):
+    """The manifest `icon` Nexus loads through its gateway: an SVG tile, not the UI page."""
+    response = env[0].get("/icon.svg")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.text.lstrip().startswith("<svg") and "<script" not in response.text
