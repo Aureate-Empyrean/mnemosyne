@@ -38,6 +38,11 @@ CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, method TEXT NOT NULL,
     """ALTER TABLE workspaces ADD COLUMN opened_at TEXT;""",
     # Grace period after a backup restore; trashed_at stays the real deletion time.
     """ALTER TABLE resources ADD COLUMN purge_after TEXT;""",
+    # 1.5.0: a note or task returned by link-search may be labelled for the module that searched.
+    """
+CREATE TABLE link_grants(resource TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+ requester TEXT NOT NULL, granted_at TEXT NOT NULL, PRIMARY KEY(resource, requester));
+""",
 ]
 
 

@@ -26,3 +26,28 @@ artifacts/
 Thumbs.db
 desktop.ini
 
+
+# Credentials, backups and build output
+*.pem
+*.key
+*.p12
+*.pfx
+backups/
+dist/
+
+# Secrets, personal data and generated artifacts (P0B)
+originals/
+uploads/
+renditions/
+*.jpg
+*.jpeg
+*.heic
+*.heif
+*.mp4
+*.mov
+*.webm
+*.tar
+*.tar.gz
+*.zip
+*.bak
+*.dump

@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import unicodedata
 import secrets
 import sqlite3
 import threading
@@ -29,7 +30,7 @@ REF = re.compile(
 )
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((nexus:v1:[^)\s]+)\)")
 KINDS = {"note", "task", "project", "collection"}
-VERSION = "1.2.3"
+VERSION = "1.5.0"
 # Backup artifact: a consistent SQLite snapshot. Older schemas migrate forward on restore.
 BACKUP_FORMAT = "mnemosyne-sqlite"
 BACKUP_FORMAT_VERSION = 1
@@ -715,6 +716,69 @@ def create_app(data_dir=None, nexus=None, clock=None):
             result["references"] = filtered
         return result
 
+    @app.get("/api/w/{wid}/resources/{rid}/linked-from")
+    def linked_from(wid: str, rid: str):
+        """Backlinks standard (concepts/backlinks.md): items in other modules that link here and
+        share it with Mnemosyne, labelled by their owners. Never raises."""
+        with db.connect() as conn:
+            ref = identity(resource(conn, wid, rid))
+        try:
+            page = nexus.request("GET", f"/references?resource={ref}&direction=incoming&limit=100")
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            return {"availability": "not_granted" if status == 403 else "nexus_error", "items": []}
+        except (httpx.HTTPError, KeyError, ValueError):
+            return {"availability": "nexus_unreachable", "items": []}
+        items = []
+        for edge in page.get("references") or []:
+            source = edge.get("source", "")
+            match = REF.fullmatch(source)
+            if not match or match[1] == "mnemosyne":
+                continue
+            entry = {"source": source, "module": match[1], "type": match[2], "label": "", "availability": "unknown"}
+            try:
+                out = nexus.request("POST", "/resources/resolve", {"resource": source})
+                entry["availability"] = out.get("availability") or "unknown"
+                if entry["availability"] == "available":
+                    entry["label"] = str(out.get("label") or "")[:200]
+                    entry["open_path"] = (out.get("open") or {}).get("module_path")
+            except Exception:
+                entry["availability"] = "temporarily_unavailable"
+            items.append(entry)
+        return {"availability": "available", "items": items}
+
+    @app.get("/api/w/{wid}/people")
+    def people(wid: str, q: str = "", limit: int = 10):
+        """Meridian's people-directory projection through Nexus, for linking a person: names
+        only (owner decisions D5/D6). Meridian stays the owner of every Person."""
+        with db.connect() as conn:
+            workspace(conn, wid)
+        try:
+            page = nexus.request(
+                "POST",
+                "/projections/query",
+                {
+                    "module": "meridian",
+                    "projection": "people-directory",
+                    "query": {"q": q[:100], "limit": max(1, min(limit, 20))},
+                    "cursor": None,
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            return {"availability": "not_granted" if status == 403 else "nexus_error", "items": []}
+        except (httpx.HTTPError, KeyError, ValueError):
+            return {"availability": "nexus_unreachable", "items": []}
+        if page.get("availability") != "available":
+            return {"availability": page.get("availability") or "unavailable", "items": []}
+        items = []
+        for item in page.get("items") or []:
+            match = REF.fullmatch(str(item.get("resource", "")))
+            if match and match[1] == "meridian" and match[2] == "person":
+                items.append({"resource": item["resource"], "label": str(item.get("label") or "")[:200],
+                              "self": bool(item.get("self"))})  # fmt: skip
+        return {"availability": "available", "items": items}
+
     @app.post("/api/w/{wid}/resolve")
     def resolve(wid: str, body: Link):
         with db.connect() as conn:
@@ -764,7 +828,10 @@ def create_app(data_dir=None, nexus=None, clock=None):
             grants = conn.execute(
                 "SELECT readers FROM links WHERE source=?", (row["id"],)
             ).fetchall()
-            if not any(body.get("requester") in json.loads(g[0]) for g in grants):
+            searched = conn.execute(
+                "SELECT 1 FROM link_grants WHERE resource=? AND requester=?", (row["id"], body.get("requester"))
+            ).fetchone()
+            if not searched and not any(body.get("requester") in json.loads(g[0]) for g in grants):
                 raise HTTPException(403, "Resource has not been shared with requester")
             if row["trashed"]:
                 raise HTTPException(410, "Deleted")
@@ -773,6 +840,25 @@ def create_app(data_dir=None, nexus=None, clock=None):
                 "label": row["title"],
                 "open_path": f"/w/{row['workspace']}/r/{row['id']}",
             }
+
+    @app.post("/empyrean/v1/projections/link-search")
+    def link_search(body: dict, request: Request):
+        """Notes and tasks a module may link (ADR 0029): a reference and a title, nothing else."""
+        require_resolver(request)
+        query = body.get("query") if isinstance(body.get("query"), dict) else {}
+        limit = max(1, min(int(query.get("limit") or 10) if str(query.get("limit") or 10).isdigit() else 10, 20))
+        folded = lambda v: "".join(c for c in unicodedata.normalize("NFKD", v or "") if not unicodedata.combining(c)).lower()  # noqa: E731
+        tokens = [t for t in folded(str(query.get("q") or "")[:100]).split() if t][:8]
+        requester = str(body.get("requester") or "")
+        with db.connect() as conn:
+            rows = conn.execute(
+                "SELECT r.id, r.kind, r.title FROM resources r JOIN workspaces w ON w.id=r.workspace "
+                "WHERE r.kind IN ('note','task') AND r.trashed=0 AND w.archived=0 ORDER BY r.updated_at DESC LIMIT 2000"
+            ).fetchall()
+            found = [r for r in rows if r["title"] and all(t in folded(r["title"]) for t in tokens)][:limit]
+            for r in found:
+                conn.execute("INSERT OR IGNORE INTO link_grants(resource, requester, granted_at) VALUES(?,?,datetime('now'))", (r["id"], requester))
+        return {"items": [{"resource": identity(r), "label": r["title"][:200]} for r in found], "next_cursor": None}
 
     @app.get("/empyrean/v1/references/outgoing")
     def outgoing(request: Request, limit: int = 200, cursor: str = ""):

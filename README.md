@@ -15,6 +15,7 @@ Mnemosyne V1 subset. Licensed AGPL-3.0-or-later.
   completion date, checklist, tags, related Notes and Projects.
 - Projects with lifecycle, related Notes/Tasks and a four-column Kanban board;
   board column is independent of task completion.
+- Link a Meridian Person from an item's details (1.3.0), shown by their current name.
 - Scoped full-content search, explicit resource links, local and Nexus backlinks,
   Module Protocol resolver, retried reference/event outbox and shared attachments.
 - Independent full-window application with violet identity and shared neutral tokens.
@@ -53,12 +54,31 @@ Review/install `manifest.local.json` through Nexus, then enable Mnemosyne.
 Open `http://localhost:12333/app/modules/mnemosyne`. Nexus authenticates every
 request; module APIs also authenticate the gateway. There is no demo login.
 
-## Navigation History pilot (local, default-off)
+## Link search (1.5.0, production since 2026-11-09)
 
-The current working tree contains the first real module integration for Nexus's
-shared navigation-history SDK. With `NEXUS_NAVIGATION_HISTORY=1` in a matching
-Nexus process, internal views/resource drawers update the parent URL and native
-Back/Forward (including Mouse4/5) restores them. Legacy resource URLs and old-host
+A names-only `link-search` projection for notes and tasks ([record](../VALIDATION_PHASE5_AETEST_2026-11-09.md)).
+
+## Linked from other modules (1.4.0, production since 2026-11-09)
+
+Item details list what other modules link here, labelled by their owners ([standard](../architecture/concepts/backlinks.md), [record](../VALIDATION_PHASE4_AETEST_2026-11-09.md)). New reviewed scopes: resolve `chronos:event` and `meridian:interaction`.
+
+## People from Meridian (1.3.0, in production since 2026-11-07 — see `../DEPLOYMENT_PHASE2_EXODUS_2026-11-07.md`)
+
+Details → **Link a person** searches Meridian's `people-directory` projection (names only) and links the
+Person by reference (`mnemosyne.related`, shared with `meridian` so Meridian can show this item's title on
+the person's profile). Linked people show their current name through resolution. Needs Meridian 0.6.0 or later
+([record](../VALIDATION_PHASE2_AETEST_2026-11-07.md)). Manifest: adds the `projections.read` capability
+(read `meridian`/`people-directory`) and resolves `meridian`/`person` — the owner approves both at update.
+
+## Navigation History (1.2.4; also in 1.3.0)
+
+Mnemosyne 1.2.4 releases the first real module integration for Nexus's shared
+navigation-history SDK (on aetest since 2026-11-07; in production with 1.3.0 since
+2026-11-07). With a Nexus that advertises navigation (0.1.11 and later, on by default),
+internal views/resource drawers update the parent URL and native Back/Forward
+(including Mouse4/5) restores them. `scripts/aetest_navigation.cjs` checks views,
+Back/Forward, reload and deep links inside the real aetest Nexus (read-only, 14/14 at
+1440 and 390 px on 2026-11-07). Legacy resource URLs and old-host
 memory navigation remain supported; no manifest privilege or sandbox relaxation
 is added. The flag is not forwarded by Nexus's checked-in Compose file.
 
@@ -82,7 +102,7 @@ npm test
 npm run check
 # With local Nexus and Mnemosyne running, plus installed Playwright Chromium:
 node scripts/browser_qa.cjs
-# Disposable Nexus installation (built Nexus and mnemosyne:1.2.3 images required):
+# Disposable Nexus installation (built Nexus and mnemosyne:1.5.0 images required):
 python scripts/nexus_integration.py ../empyrean-nexus
 ```
 

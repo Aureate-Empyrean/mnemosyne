@@ -178,6 +178,7 @@ function autosize(el) {
 /* ───────────────────────── Icons ───────────────────────── */
 
 const ICONS = {
+  person: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c.9-3.6 3.6-5.6 7-5.6s6.1 2 7 5.6"/>',
   home: '<path d="M3.5 9 10 3.5 16.5 9v7a1 1 0 0 1-1 1h-3.5v-5h-4v5H4.5a1 1 0 0 1-1-1z"/>',
   note: '<path d="M5.5 2.75h6L15.25 6.5v10.25a.75.75 0 0 1-.75.75h-9a.75.75 0 0 1-.75-.75V3.5a.75.75 0 0 1 .75-.75z"/><path d="M11.25 3v3.5h3.75M7.5 10h5M7.5 13h3.5"/>',
   task: '<circle cx="10" cy="10" r="7"/><path d="m7 10.2 2.1 2.1L13.2 8"/>',
@@ -1354,6 +1355,34 @@ async function openDetails(id) {
     b.setAttribute("aria-pressed", "true"),
   );
 }
+/* Backlinks standard (concepts/backlinks.md): loaded with the details, kept briefly per item. */
+const LINKED_KIND = () => ({ "chronos:event": t("Event in Chronos"), "meridian:interaction": t("Interaction in Meridian"), "meridian:person": t("Person in Meridian") });
+function paintLinkedFrom(id, result) {
+  const section = $("#linked-others");
+  if (!section || state.drawer?.id !== id) return;
+  if (!result || result.availability !== "available" || !result.items.length) {
+    section.hidden = true;
+    return;
+  }
+  $("#nexus-backlinks").innerHTML = result.items
+    .map((x) => {
+      const gone = x.availability !== "available";
+      const note = x.availability === "deleted" ? t("deleted there") : ["forbidden", "not_found", "not_resolvable"].includes(x.availability) ? t("not available") : gone ? t("not available right now") : "";
+      const kind = LINKED_KIND()[`${x.module}:${x.type}`] || t("Linked from another module");
+      const open = !gone && state.context.applications.some((a) => a.id === x.module) ? `<button type="button" class="btn small quiet" data-act="open-module" data-module="${esc(x.module)}" data-path="${esc(x.open_path || "")}">${esc(t("Open"))}</button>` : "";
+      return `<div class="d-row${gone ? " is-gone" : ""}">${icon("link")}<span class="d-row-main"><span class="d-row-title">${esc(gone ? t("Something linked here") : x.label)}</span><span class="d-row-meta">${esc([kind, note].filter(Boolean).join(" · "))}</span></span>${open}</div>`;
+    })
+    .join("");
+  section.hidden = false;
+}
+async function loadLinkedFrom(s) {
+  const id = s.r.id;
+  const fresh = s.linkedFrom && Date.now() - s.linkedFrom.at < 30000;
+  if (fresh) return paintLinkedFrom(id, s.linkedFrom.result);
+  const result = await api(wp("/resources/" + id + "/linked-from")).catch(() => null);
+  s.linkedFrom = { at: Date.now(), result };
+  paintLinkedFrom(id, result);
+}
 function closeDrawer({ flush = true } = {}) {
   if (moduleNavigation.enabled && !applyingNavigation && flush && state.drawer)
     return navigateState(state.view, {set:{drawer:null}});
@@ -1385,6 +1414,7 @@ function renderDrawer() {
   if (!s) return;
   drawer.innerHTML =
     current.mode === "task" ? inspectorHtml(s.r) : detailsHtml(s.r);
+  loadLinkedFrom(s);
   drawer.setAttribute("aria-hidden", "false");
   drawer.setAttribute(
     "aria-label",
@@ -1396,6 +1426,54 @@ function renderDrawer() {
     $("#shell")?.classList.add("drawer-open");
   }
   if (current.mode === "task") renderChecklist(s);
+  bindPersonLinks(drawer);
+}
+/* People from Meridian (1.3.0): a link to a Meridian Person, chosen by name through Meridian's
+   people-directory projection. Meridian keeps the person; Mnemosyne keeps only the link and
+   shares it with Meridian, which may then show this item's title on the person's profile. */
+function personLinkRow(l, ro) {
+  return `<div class="d-row person-link" data-person-link="${esc(l.target)}">${icon("person")}<span class="d-row-main"><span class="d-row-title">${esc(t("A person in Meridian"))}</span><span class="d-row-meta">${esc(t("Checking Meridian…"))}</span></span><span class="d-row-actions"><button type="button" class="icon-btn" data-act="unlink" data-id="${esc(l.id)}" aria-label="${esc(t("Remove link"))}" ${ro}>${icon("x")}</button></span></div>`;
+}
+let personResults = [];
+let personSeq = 0;
+function bindPersonLinks(root) {
+  $$("[data-person-link]", root).forEach(async (row) => {
+    const result = await api(wp("/resolve"), "POST", { target: row.dataset.personLink }).catch(() => ({ availability: "unavailable_or_not_granted" }));
+    if (!row.isConnected) return;
+    const title = $(".d-row-title", row);
+    const meta = $(".d-row-meta", row);
+    if (result.availability === "available" && result.label) {
+      title.textContent = result.label;
+      meta.textContent = t("Person in Meridian");
+    } else {
+      row.classList.add("is-gone");
+      meta.textContent = { deleted: t("No longer in Meridian"), module_uninstalled: t("Meridian is not installed"), module_disabled: t("Meridian is stopped"), forbidden: t("Not shared with Mnemosyne") }[result.availability] || t("Meridian is not available right now");
+    }
+  });
+  const input = $("#person-q", root);
+  if (!input) return;
+  const box = $("#person-results", root);
+  const search = async () => {
+    const q = input.value.trim();
+    const mine = ++personSeq;
+    const result = await api(wp("/people") + (q ? "?q=" + encodeURIComponent(q) : "")).catch(() => ({ availability: "nexus_unreachable", items: [] }));
+    if (mine !== personSeq || !box.isConnected) return;
+    const linked = new Set($$("[data-person-link]", root).map((r) => r.dataset.personLink));
+    personResults = result.items.filter((p) => !linked.has(p.resource));
+    const why = { not_granted: t("Mnemosyne is not allowed to search Meridian. Review its permissions in Nexus."), module_uninstalled: t("Meridian is not installed."), module_disabled: t("Meridian is stopped."), not_provided: t("This version of Meridian cannot share names yet.") }[result.availability] || t("Meridian is not available right now.");
+    box.innerHTML = result.availability !== "available"
+      ? `<p class="d-empty">${esc(why)}</p>`
+      : personResults.length
+        ? personResults.map((p, i) => `<button type="button" class="d-row as-button person-option" role="option" data-act="pick-person" data-index="${i}">${icon("person")}<span class="d-row-main"><span class="d-row-title">${esc(p.label)}</span>${p.self ? `<span class="d-row-meta">${esc(t("You"))}</span>` : ""}</span></button>`).join("")
+        : `<p class="d-empty">${esc(q ? t("No one in Meridian matches “{q}”.", { q }) : t("No people to link."))}</p>`;
+    input.setAttribute("aria-expanded", "true");
+  };
+  let timer;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(search, 160);
+  });
+  input.closest("details")?.addEventListener("toggle", (e) => e.target.open && !box.innerHTML && search());
 }
 function rerenderSessionViews(id) {
   if (state.drawer?.id === id) renderDrawer();
@@ -1484,6 +1562,7 @@ function sharedSections(r) {
     .join("");
   const links = (r.links || [])
     .map((l) => {
+      if (/^nexus:v1:meridian:person:/.test(l.target)) return personLinkRow(l, ro);
       const local = l.target.match(/^nexus:v1:mnemosyne:([a-z-]+):(.+)$/);
       const label =
         local && find(local[2]) ? displayTitle(find(local[2])) : l.target;
@@ -1500,9 +1579,11 @@ function sharedSections(r) {
   return `
     <section class="d-section"><h3>${esc(t("Attachments"))}</h3>${attachments || `<p class="d-empty">${esc(t("No files attached."))}</p>`}${ro ? "" : `<label class="btn small file-btn">${icon("paperclip")}<span>${esc(t("Attach a file"))}</span><input type="file" data-attach="${esc(r.id)}" hidden></label><p class="d-hint">${esc(t("Up to 1 MiB per file."))}</p>`}</section>
     <section class="d-section"><h3>${esc(t("Links"))}</h3>${links || `<p class="d-empty">${esc(t("This doesn't link to anything yet."))}</p>`}
+      ${ro ? "" : `<details class="link-form person-form" data-animate><summary>${icon("person", "disclosure-plus")}${esc(t("Link a person"))}</summary><div class="link-form-body"><label class="field"><span>${esc(t("Search people in Meridian"))}</span><input id="person-q" type="search" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="person-results" autocomplete="off" maxlength="100" placeholder="${esc(t("Name or @me"))}"></label><div class="person-results" id="person-results" role="listbox"></div><p class="d-hint">${esc(t("Meridian keeps the person. It can show this item's title on their profile."))}</p></div></details>`}
       ${ro ? "" : `<details class="link-form" data-animate><summary>${icon("plus", "disclosure-plus")}${esc(t("Link a resource"))}</summary><div class="link-form-body"><label class="field"><span>${esc(t("Reference"))}</span><input id="link-target" class="mono" placeholder="nexus:v1:module:type:id" autocomplete="off"></label><label class="field"><span>${esc(t("Share with modules (optional)"))}</span><input id="link-readers" placeholder="${esc(t("module-id, another-module"))}" autocomplete="off"></label><p class="d-hint">${esc(t("Sharing also lets those modules see this item's title. Leave empty to keep the link private."))}</p><button type="button" class="btn small primary" data-act="add-link">${esc(t("Add link"))}</button></div></details>`}
     </section>
-    <section class="d-section"><h3>${esc(t("Linked from"))}</h3>${backlinks || `<p class="d-empty">${esc(t("Nothing in this Workspace links here."))}</p>`}<button type="button" class="btn small quiet" data-act="nexus-backlinks">${icon("refresh")}<span>${esc(t("Check other modules"))}</span></button><div class="nexus-backlinks" id="nexus-backlinks"></div></section>
+    <section class="d-section"><h3>${esc(t("Linked from"))}</h3>${backlinks || `<p class="d-empty">${esc(t("Nothing in this Workspace links here."))}</p>`}</section>
+    <section class="d-section" id="linked-others" hidden><h3>${esc(t("Linked from other modules"))}</h3><div class="nexus-backlinks" id="nexus-backlinks"></div><p class="d-hint">${esc(t("These items belong to their modules."))}</p></section>
     <section class="d-section"><h3>${esc(t("Appearance"))}</h3>
       <div class="appearance"><label class="icon-field"><span>${esc(t("Icon"))}</span><input data-edit="icon" maxlength="8" value="${esc(r.icon)}" placeholder="✦" aria-label="${esc(t("Icon"))}" ${ro}></label>
       <div class="swatches" role="radiogroup" aria-label="${esc(t("Color"))}"><button type="button" class="swatch none${!accent ? " on" : ""}" data-act="set-accent" data-color="" role="radio" aria-checked="${!accent}" aria-label="${esc(t("No color"))}" ${ro}>${icon("x")}</button>${ACCENTS.map((c) => `<button type="button" class="swatch${accent === c ? " on" : ""}" style="--swatch:${c}" data-act="set-accent" data-color="${c}" role="radio" aria-checked="${accent === c}" aria-label="${esc(t("Color {hex}", { hex: c }))}" ${ro}></button>`).join("")}<label class="swatch custom${accent && !ACCENTS.includes(accent) ? " on" : ""}" style="--swatch:${esc(accent || "#8B7CF6")}" title="${esc(t("Custom color"))}"><input type="color" data-edit="accent" value="${esc((r.accent || "#8b7cf6").toLowerCase())}" aria-label="${esc(t("Custom color"))}" ${ro}></label></div></div>
@@ -3654,6 +3735,17 @@ const actions = {
     $$("#drawer details.more").forEach((d) => (d.open = true));
     toast(t("Link added"));
   },
+  "pick-person": async (el) => {
+    const s = activeSessionFor(el);
+    const p = personResults[Number(el.dataset.index)];
+    if (!p) return;
+    if (s.dirty) await saveSession(s);
+    await api(wp("/resources/" + s.r.id + "/links"), "POST", { target: p.resource, readers: ["meridian"] });
+    await reloadSession(s);
+    renderDrawer();
+    $$("#drawer details.more").forEach((d) => (d.open = true));
+    toast(t("{name} linked", { name: p.label }));
+  },
   unlink: async (el) => {
     const s = activeSessionFor(el);
     if (s.dirty) await saveSession(s);
@@ -3688,26 +3780,7 @@ const actions = {
       (result.label ? result.label + " · " : "") +
       (labels[result.availability] || result.availability);
   },
-  "nexus-backlinks": async (el) => {
-    const s = activeSessionFor(el);
-    const data = await api(wp("/resources/" + s.r.id + "/references"));
-    const holder = el.parentElement.querySelector(".nexus-backlinks");
-    holder.innerHTML = data.references.length
-      ? data.references
-          .map((e) => {
-            const local = e.source.match(/^nexus:v1:mnemosyne:[a-z-]+:(.+)$/);
-            const r = local && find(local[1]);
-            return r
-              ? `<button type="button" class="d-row as-button" data-act="open" data-id="${esc(r.id)}">${icon(KIND_ICON[r.kind])}<span class="d-row-main"><span class="d-row-title">${esc(displayTitle(r))}</span></span></button>`
-              : `<div class="d-row">${icon("link")}<span class="d-row-main"><span class="d-row-title mono">${esc(e.source)}</span></span></div>`;
-          })
-          .join("") +
-        (data.has_more
-          ? `<p class="d-hint">${esc(t("Showing the first 100."))}</p>`
-          : "")
-      : `<p class="d-empty">${esc(t("No other module links here, or none has shared it with Mnemosyne."))}</p>`;
-    enterView(holder);
-  },
+  "open-module": (el) => bridge("navigate", { module: el.dataset.module, ...(el.dataset.path ? { path: el.dataset.path } : {}) }).catch((e) => toast(e.message, "danger")),
   "download-attachment": async (el) => {
     const s = activeSessionFor(el);
     const a = await api(

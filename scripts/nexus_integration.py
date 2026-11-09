@@ -1,7 +1,7 @@
 """Prove Mnemosyne's Nexus 0.1.3 contract against a disposable Nexus installation.
 
 Requires Docker access, httpx, built Nexus images (`docker compose build` in the Nexus
-repository) and a built `mnemosyne:1.2.3` image. Creates a uniquely named Compose project on
+repository) and a built `mnemosyne:1.5.0` image. Creates a uniquely named Compose project on
 loopback, installs Mnemosyne, and exercises outgoing-reference reconciliation and the backup
 v1 lifecycle (export, validate, restore, reconcile, finalize) through owner APIs and the
 authenticated gateway. Removes only its own stack and the module volume it created.
@@ -127,7 +127,7 @@ def main():
 
         backup = check(client.post(f"/api/v1/modules/{MODULE}/backups"), 201)
         assert backup["module_format"] == "mnemosyne-sqlite", backup
-        assert backup["restorable_by"] == ">=1.2.3,<2", backup
+        assert backup["restorable_by"] == ">=1.5.0,<2", backup
 
         # Diverge: rename, add a note with a second edge, permanently delete the source.
         app(

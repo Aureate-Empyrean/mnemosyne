@@ -18,6 +18,7 @@ class SharedServices:
         self.fail = False
         self.gone = False
         self.status = None
+        self.directory = {"availability": "module_uninstalled"}
 
     def request(self, method, path, body=None):
         if self.fail:
@@ -42,6 +43,10 @@ class SharedServices:
             return {"reference": {"id": "remote-id"}}
         if path.startswith("/references?"):
             return {"references": [], "has_more": False, "next_cursor": 0}
+        if path == "/projections/query" and body["projection"] == "people-directory":
+            return self.directory
+        if path == "/resources/resolve":
+            return {"resource": body["resource"], "availability": "available", "label": "Live name"}
         return {}
 
 
@@ -570,9 +575,9 @@ def test_backup_roundtrip_preserves_identity_and_suspends_purges(tmp_path, monke
         assert exported.status_code == 200
         headers = backup_headers(exported)
         assert headers["x-empyrean-backup-module"] == "mnemosyne"
-        assert headers["x-empyrean-backup-module-version"] == "1.2.3"
+        assert headers["x-empyrean-backup-module-version"] == "1.5.0"
         assert headers["x-empyrean-backup-format"] == "mnemosyne-sqlite"
-        assert headers["x-empyrean-backup-restorable-by"] == ">=1.2.3,<2"
+        assert headers["x-empyrean-backup-restorable-by"] == ">=1.5.0,<2"
         assert not list(tmp_path.glob("*.part"))
         artifact = exported.content
 
@@ -739,3 +744,120 @@ def test_serves_its_application_icon(env):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert response.text.lstrip().startswith("<svg") and "<script" not in response.text
+
+
+# ── 1.3.0: people from Meridian ──────────────────────────────────────
+
+PERSON = "nexus:v1:meridian:person:0190f0e4-0000-7000-8000-000000000042"
+
+
+def test_people_picker_reads_meridian_names_only(env):
+    c, _, nexus, a, _, _ = env
+    assert c.get(f"/api/w/{a}/people?q=vik").json() == {
+        "availability": "module_uninstalled",
+        "items": [],
+    }
+    nexus.directory = {
+        "availability": "available",
+        "items": [
+            {"id": "x", "resource": PERSON, "label": "Vzorko Kvázimenný", "self": True},
+            {
+                "id": "y",
+                "resource": "nexus:v1:meridian:organization:0190f0e4-0000-7000-8000-000000000043",
+                "label": "ACME",
+            },
+        ],
+        "next_cursor": None,
+    }
+    found = c.get(f"/api/w/{a}/people?q=vik&limit=50").json()
+    assert found == {
+        "availability": "available",
+        "items": [{"resource": PERSON, "label": "Vzorko Kvázimenný", "self": True}],
+    }
+    query = [x for x in nexus.calls if x[1] == "/projections/query"][-1][2]
+    assert query == {
+        "module": "meridian",
+        "projection": "people-directory",
+        "query": {"q": "vik", "limit": 20},
+        "cursor": None,
+    }
+    nexus.status = 403
+    assert c.get(f"/api/w/{a}/people").json()["availability"] == "not_granted"
+    nexus.status = None
+    nexus.fail = True
+    assert c.get(f"/api/w/{a}/people").json()["availability"] == "nexus_unreachable"
+    assert c.get("/api/w/0190f0e4-0000-7000-8000-0000000000ff/people").status_code == 404
+
+
+def test_person_link_is_shared_with_meridian_and_resolves(env):
+    c, app, nexus, a, _, _ = env
+    note = make(c, a, title="Coffee with Vzorko")
+    added = c.post(
+        f"/api/w/{a}/resources/{note['id']}/links", json={"target": PERSON, "readers": ["meridian"]}
+    )
+    assert added.status_code == 200, added.text
+    app.state.flush(force=True)
+    posted = [x[2] for x in nexus.calls if x[1] == "/references"][-1]
+    assert posted == {
+        "source": note["reference"],
+        "target": PERSON,
+        "relation": "mnemosyne.related",
+        "readers": ["meridian"],
+    }
+    # The UI shows the person's current name through Nexus resolution.
+    assert c.post(f"/api/w/{a}/resolve", json={"target": PERSON}).json()["label"] == "Live name"
+    # Meridian, as a reader, may resolve the note's title for the person's profile; others may not.
+    resolve = lambda who: c.post(  # noqa: E731
+        "/empyrean/v1/resources/resolve",
+        headers={"X-Nexus-Resolver-Key": KEY},
+        json={"resource": note["reference"], "requester": who},
+    )
+    assert resolve("meridian").json()["label"] == "Coffee with Vzorko"
+    assert resolve("chronos").status_code == 403
+    edges = c.get("/empyrean/v1/references/outgoing", headers={"X-Nexus-Resolver-Key": KEY}).json()[
+        "references"
+    ]
+    assert any(e["target"] == PERSON and e["readers"] == ["meridian"] for e in edges)
+
+
+# ── 1.4.0: backlinks standard ───────────────────────────────────────────
+
+
+def test_backlinks_follow_the_standard(env):
+    c, _, services, a, _, _ = env
+    rid = make(c, a, title="Coffee")["id"]
+    target = f"nexus:v1:mnemosyne:note:{rid}"
+    event = "nexus:v1:chronos:event:0190f0e4-0000-7000-8000-000000000001"
+    gone = "nexus:v1:meridian:interaction:0190f0e4-0000-7000-8000-000000000002"
+    original = services.request
+
+    def request(method, path, body=None):
+        if path.startswith("/references?"):
+            assert f"resource={target}" in path and "direction=incoming" in path
+            return {"references": [{"source": event}, {"source": gone}, {"source": target}]}
+        if path == "/resources/resolve":
+            return {"availability": "available", "label": "Lunch"} if body["resource"] == event else {"availability": "deleted"}
+        return original(method, path, body)
+
+    services.request = request
+    got = c.get(f"/api/w/{a}/resources/{rid}/linked-from").json()
+    assert [(x["module"], x["label"], x["availability"]) for x in got["items"]] == [
+        ("chronos", "Lunch", "available"),
+        ("meridian", "", "deleted"),
+    ]
+    services.request = original
+    services.fail = True
+    assert c.get(f"/api/w/{a}/resources/{rid}/linked-from").json() == {"availability": "nexus_unreachable", "items": []}
+
+
+def test_link_search_returns_titles_only_and_grants_only_that_module(env):
+    c, _, _, a, _, _ = env
+    note = make(c, a, title="Coffee notes")
+    resolver = {"X-Nexus-Resolver-Key": KEY}
+    ask = lambda q: c.post("/empyrean/v1/projections/link-search", headers=resolver, json={"requester": "meridian", "query": {"q": q}})  # noqa: E731
+    ref = f"nexus:v1:mnemosyne:note:{note['id']}"
+    resolve = lambda who: c.post("/empyrean/v1/resources/resolve", headers=resolver, json={"resource": ref, "requester": who})  # noqa: E731
+    assert resolve("meridian").status_code == 403
+    assert ask("coffee").json()["items"] == [{"resource": ref, "label": "Coffee notes"}]
+    assert resolve("meridian").status_code == 200
+    assert resolve("lyra").status_code == 403

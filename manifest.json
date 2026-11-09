@@ -3,7 +3,7 @@
   "id": "mnemosyne",
   "name": "Mnemosyne",
   "description": "Workspace-scoped personal knowledge, notes, tasks and projects.",
-  "version": "1.2.3",
+  "version": "1.5.0",
   "publisher": {
     "name": "Aureate Empyrean",
     "originalAuthors": [
@@ -25,7 +25,8 @@
     "events.publish",
     "references.create",
     "references.read",
-    "references.resolve"
+    "references.resolve",
+    "projections.read"
   ],
   "routes": {
     "ui": "/",
@@ -60,7 +61,20 @@
   "references": {
     "version": 2,
     "read": [],
-    "resolve": [],
+    "resolve": [
+      {
+        "module": "meridian",
+        "type": "person"
+      },
+      {
+        "module": "chronos",
+        "type": "event"
+      },
+      {
+        "module": "meridian",
+        "type": "interaction"
+      }
+    ],
     "enumerate": true
   },
   "backup": {
@@ -69,8 +83,14 @@
   "projections": {
     "version": 1,
     "provides": [
-      "dated-items"
+      "dated-items",
+      "link-search"
     ],
-    "read": []
+    "read": [
+      {
+        "module": "meridian",
+        "projection": "people-directory"
+      }
+    ]
   }
 }
