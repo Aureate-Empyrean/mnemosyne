@@ -30,7 +30,7 @@ REF = re.compile(
 )
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((nexus:v1:[^)\s]+)\)")
 KINDS = {"note", "task", "project", "collection"}
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 # Backup artifact: a consistent SQLite snapshot. Older schemas migrate forward on restore.
 BACKUP_FORMAT = "mnemosyne-sqlite"
 BACKUP_FORMAT_VERSION = 1

@@ -5,6 +5,7 @@ the source on 2026-11-05. This is not production deployment or an all-module
 migration. **Update 2026-11-07:** Nexus 0.1.11 enables the host feature by default
 (`NEXUS_NAVIGATION_HISTORY=0` is the kill switch) and is reported deployed, but this
 Mnemosyne adapter is released in **1.2.4** and carried by **1.3.0**, which runs on aetest (checked in the real Nexus, 14/14 at 1440/390 px) and **in production since 2026-11-07** ([record](../../DEPLOYMENT_PHASE2_EXODUS_2026-11-07.md)).
+**Update 2026-11-09 (1.5.1 on aetest):** the shared SDK now reports `enabled` only once a session is granted and false after a failed handshake. Mnemosyne's adapter is unchanged and carries that SDK. **Search per history entry remains a checkpoint keyed by workspace/view**, so it has not adopted the per-entry view state the other modules use.
 The earlier text, written when the flag defaulted off (`NEXUS_NAVIGATION_HISTORY=1`
 required), follows. Both the updated host and this module's inline SDK/adapter must be loaded.
 Nexus's checked-in Compose file does not forward the flag; `.env` alone is

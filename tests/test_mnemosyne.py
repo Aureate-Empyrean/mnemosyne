@@ -575,9 +575,9 @@ def test_backup_roundtrip_preserves_identity_and_suspends_purges(tmp_path, monke
         assert exported.status_code == 200
         headers = backup_headers(exported)
         assert headers["x-empyrean-backup-module"] == "mnemosyne"
-        assert headers["x-empyrean-backup-module-version"] == "1.5.0"
+        assert headers["x-empyrean-backup-module-version"] == "1.5.1"
         assert headers["x-empyrean-backup-format"] == "mnemosyne-sqlite"
-        assert headers["x-empyrean-backup-restorable-by"] == ">=1.5.0,<2"
+        assert headers["x-empyrean-backup-restorable-by"] == ">=1.5.1,<2"
         assert not list(tmp_path.glob("*.part"))
         artifact = exported.content
 
